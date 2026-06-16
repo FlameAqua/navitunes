@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand palette from the PWA -->
+    <color name="bg">#0e0a08</color>
+    <color name="bg_top">#1a0f0a</color>
+    <color name="surface">#15100d</color>
+    <color name="surface_elev">#1f1813</color>
+    <color name="surface_hi">#2a201a</color>
+    <color name="border">#2e241d</color>
+    <color name="border_strong">#3d2f25</color>
+    <color name="text">#f5ede3</color>
+    <color name="text2">#a89b8e</color>
+    <color name="text3">#6b5d51</color>
+    <color name="text4">#463b32</color>
+    <color name="accent">#d97757</color>
+    <color name="accent2">#c2643f</color>
+    <color name="accent_on">#1a0a04</color>
+    <color name="danger">#d65d5d</color>
+    <color name="success">#7ab86a</color>
+</resources>

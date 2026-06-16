@@ -1,0 +1,151 @@
+# Navitunes
+
+A native Android client for [Navidrome](https://www.navidrome.org/) (and any Subsonic-compatible server), built as a proper APK — background playback, lockscreen controls, BT headset keys, multi-account support, and offline downloads.
+
+Based on the [`navitunes_old`](./..) PWA blueprint, rewritten in Kotlin + Jetpack Compose with Media3 ExoPlayer.
+
+---
+
+## Features
+
+- **Multi-profile** — Add several Navidrome accounts (different users, or different servers entirely). Switch from Settings.
+- **Library** — Albums, artists, playlists, favorites. Same browse model as the PWA.
+- **Full-screen player** — Shuffle, repeat (off / all / one), favorite toggle, ±10s skip, queue view.
+- **Background playback** — Media3 `MediaSessionService` keeps audio playing when the app is backgrounded, with system media notification and lockscreen artwork.
+- **Bluetooth + headset keys** — Play/pause/next via earbuds and car stereos.
+- **Offline downloads** — Per-profile download manager, Wi-Fi-only option, storage usage in Settings.
+- **Encrypted credentials** — Passwords stored in `EncryptedSharedPreferences` with a Keystore-backed master key. Passwords are never sent in cleartext: every request uses the Subsonic salted-MD5 token (`md5(password + salt)`).
+- **No third-party services** — No analytics, no crash reporters, no ads. The only outbound traffic is to *your* Navidrome.
+
+---
+
+## Install
+
+### Option A: prebuilt APK from GitHub Releases (recommended)
+
+1. Open this repo's [Releases page](../../releases).
+2. Download the latest `app-release.apk`.
+3. On your Android device, enable **Settings → Apps → Special access → Install unknown apps** for your browser or file manager.
+4. Open the downloaded APK and tap **Install**.
+5. Launch Navitunes. Enter your Navidrome URL (e.g. `https://music.adrianszydlo.ie`), username, and password. Tap **Connect**.
+
+> Minimum: Android 8.0 (API 26). Target: Android 14 (API 34).
+
+### Option B: build from source
+
+You need **JDK 17** and either Android Studio (Jellyfish or newer) or the `gradle` CLI (8.9+).
+
+```bash
+git clone https://github.com/YOUR/navitunes.git
+cd navitunes
+# First clone only — initialise the Gradle wrapper jar:
+gradle wrapper --gradle-version 8.9
+./gradlew :app:assembleDebug
+```
+
+The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Drag-and-drop it onto a running emulator, or `adb install` to a connected device.
+
+For a release build that you can install on a real phone, see **Signing** below.
+
+---
+
+## Profiles
+
+Profiles map 1:1 to Navidrome user accounts. You can have multiple profiles on the same server (each user sees their own favourites, playlists, and play counts) or profiles across different servers.
+
+- **Add** — Settings → Profiles → *Add profile*. Enter the server URL, username, and password. Navitunes verifies the credentials with a `ping.view` call before saving.
+- **Switch** — Settings → tap a profile. Playback stops, in-memory caches clear, and the library reloads against the new profile. Offline downloads stay scoped per-profile.
+- **Remove** — Settings → swipe / tap the logout icon. Removing a profile also deletes any offline content downloaded under it.
+
+Credentials are stored in `EncryptedSharedPreferences` (AES-256-GCM, key in Android Keystore). The store file is excluded from cloud backup and device-to-device transfer.
+
+---
+
+## Signing release builds
+
+To produce signed release APKs (required to install over USB):
+
+1. Generate a keystore once:
+
+   ```bash
+   keytool -genkey -v -keystore release.keystore -alias navitunes \
+     -keyalg RSA -keysize 2048 -validity 10000
+   ```
+
+2. Create `release-keystore.properties` next to `settings.gradle.kts`:
+
+   ```properties
+   storeFile=/absolute/path/to/release.keystore
+   storePassword=••••••
+   keyAlias=navitunes
+   keyPassword=••••••
+   ```
+
+   This file is in `.gitignore` — never commit it.
+
+3. Build:
+
+   ```bash
+   ./gradlew :app:assembleRelease
+   ```
+
+### CI-driven signing
+
+The GitHub Actions workflow (`.github/workflows/android.yml`) signs tagged release builds when these repository secrets are present:
+
+| Secret | Value |
+| --- | --- |
+| `KEYSTORE_BASE64` | `base64 -w0 release.keystore` output |
+| `KEYSTORE_PASSWORD` | keystore password |
+| `KEY_ALIAS` | key alias (e.g. `navitunes`) |
+| `KEY_PASSWORD` | key password |
+
+Tag a commit `v1.0.0` (or similar) and CI will produce a signed release APK, upload it as an artifact, and attach it to a GitHub Release.
+
+---
+
+## Project layout
+
+```
+app/src/main/java/ie/adrianszydlo/navitunes/
+├── NavitunesApp.kt           Application — owns the AppContainer
+├── AppContainer.kt           Hand-wired DI container (no Hilt/Koin)
+├── MainActivity.kt           Single-activity Compose host
+├── data/
+│   ├── auth/                 MD5, Subsonic auth params, profile store
+│   ├── api/                  Subsonic models + ApiClient (OkHttp + kotlinx-serialization)
+│   ├── repo/                 LibraryRepository + PlaybackRepository
+│   ├── offline/              Room DB + WorkManager-backed DownloadWorker
+│   └── prefs/                DataStore-backed user preferences
+├── playback/
+│   ├── PlayerService.kt      MediaSessionService — owns the single ExoPlayer
+│   └── PlayerController.kt   Compose-friendly MediaController wrapper
+└── ui/                        Compose screens (Home, Library, Search, Detail, Player, Settings…)
+```
+
+---
+
+## Security & privacy
+
+- The default network security config permits HTTP because Navidrome is commonly self-hosted on a LAN. The login screen warns when a non-HTTPS URL is entered. **Use HTTPS over the public internet.**
+- Backup rules exclude credentials and offline files from cloud backup.
+- App permissions are kept to the minimum: `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE` (mediaPlayback), `POST_NOTIFICATIONS`, `WAKE_LOCK`. No external storage, no camera, no contacts, no location.
+- Release builds are minified and shrunk via R8 with custom rules for kotlinx-serialization, Retrofit, Media3, and Room.
+
+---
+
+## Roadmap
+
+The PWA had a clean, focused feature set — Navitunes Android matches it 1:1 and adds the things only a real app can deliver (background playback, system controls, offline). Future work, in roughly that order:
+
+- Long-press song menus (Download, Play next, Add to queue, View album)
+- Smart playlists (filter by genre/year/rating)
+- Cast / Chromecast support
+- Wear OS companion
+- Android Auto / Automotive
+
+---
+
+## License
+
+MIT (see [LICENSE](LICENSE)).

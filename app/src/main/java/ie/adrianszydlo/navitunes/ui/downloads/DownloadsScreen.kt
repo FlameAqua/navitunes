@@ -1,0 +1,178 @@
+package ie.adrianszydlo.navitunes.ui.downloads
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import ie.adrianszydlo.navitunes.NavitunesApp
+import ie.adrianszydlo.navitunes.data.offline.DownloadEntity
+import ie.adrianszydlo.navitunes.data.offline.DownloadRepository
+import ie.adrianszydlo.navitunes.ui.common.EmptyState
+import ie.adrianszydlo.navitunes.ui.common.formatBytes
+import ie.adrianszydlo.navitunes.ui.common.formatDuration
+import ie.adrianszydlo.navitunes.ui.theme.Accent
+import ie.adrianszydlo.navitunes.ui.theme.Danger
+import ie.adrianszydlo.navitunes.ui.theme.Success
+import ie.adrianszydlo.navitunes.ui.theme.Text2
+import ie.adrianszydlo.navitunes.ui.theme.Text3
+import kotlinx.coroutines.launch
+
+@Composable
+fun DownloadsScreen(onBack: () -> Unit) {
+    val container = NavitunesApp.container()
+    val downloads by container.downloadRepository.observeForActiveProfile()
+        .collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+    var totalBytes by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(downloads) {
+        totalBytes = container.downloadRepository.totalBytesForActiveProfile()
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Outlined.ArrowBack, contentDescription = "Back", tint = Text2)
+            }
+            Text(
+                "Downloads",
+                style = MaterialTheme.typography.displayMedium,
+                fontStyle = FontStyle.Italic,
+                modifier = Modifier.weight(1f)
+            )
+            if (downloads.isNotEmpty()) {
+                TextButton(onClick = {
+                    scope.launch { container.downloadRepository.clearAllForActiveProfile() }
+                }) {
+                    Icon(Icons.Outlined.Delete, contentDescription = null, tint = Danger)
+                    Spacer(Modifier.height(0.dp))
+                    Text("Clear all", color = Danger)
+                }
+            }
+        }
+
+        if (downloads.isEmpty()) {
+            EmptyState(
+                title = "No downloads",
+                body = "Long-press an album or song to download it for offline."
+            )
+            return@Column
+        }
+
+        Text(
+            "${downloads.count { it.status == DownloadRepository.STATUS_COMPLETED }} of ${downloads.size} · ${formatBytes(totalBytes)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = Text3,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+        )
+
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp).let {
+                PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 200.dp)
+            },
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            items(downloads, key = { "${it.profileId}-${it.songId}" }) { d ->
+                DownloadRow(entity = d, onRemove = {
+                    scope.launch { container.downloadRepository.removeDownload(d.songId) }
+                })
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadRow(entity: DownloadEntity, onRemove: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                entity.title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                buildString {
+                    append(entity.artist)
+                    if (entity.duration > 0) {
+                        if (isNotEmpty()) append(" · ")
+                        append(formatDuration(entity.duration))
+                    }
+                    if (entity.sizeBytes > 0) {
+                        if (isNotEmpty()) append(" · ")
+                        append(formatBytes(entity.sizeBytes))
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = Text3
+            )
+        }
+        Text(
+            statusLabel(entity.status),
+            style = MaterialTheme.typography.labelMedium,
+            color = statusColor(entity.status),
+            modifier = Modifier.padding(end = 8.dp)
+        )
+        IconButton(onClick = onRemove) {
+            Icon(Icons.Outlined.Delete, contentDescription = "Remove", tint = Text3)
+        }
+    }
+}
+
+private fun statusLabel(status: String): String = when (status) {
+    DownloadRepository.STATUS_QUEUED -> "Queued"
+    DownloadRepository.STATUS_DOWNLOADING -> "Downloading…"
+    DownloadRepository.STATUS_COMPLETED -> "Saved"
+    DownloadRepository.STATUS_FAILED -> "Failed"
+    else -> status
+}
+
+private fun statusColor(status: String) = when (status) {
+    DownloadRepository.STATUS_COMPLETED -> Success
+    DownloadRepository.STATUS_FAILED -> Danger
+    DownloadRepository.STATUS_DOWNLOADING -> Accent
+    else -> Text3
+}

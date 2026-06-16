@@ -16,14 +16,14 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "ie.adrianszydlo.navitunes"
-    compileSdk = 37
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "ie.adrianszydlo.navitunes"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 35
         versionCode = 1
-        versionName = "0.2.0"
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

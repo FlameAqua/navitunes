@@ -46,7 +46,8 @@ fun AlbumScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var album by remember { mutableStateOf<Album?>(null) }
 
-    LaunchedEffect(id) {
+    val signalTick by container.librarySignals.refresh.collectAsState()
+    LaunchedEffect(id, signalTick) {
         loading = true; error = null
         try {
             album = repo.album(id)

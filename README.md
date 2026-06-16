@@ -151,9 +151,104 @@ Navidrome — and the Subsonic API in general — has **no upload endpoint**: it
 
 Navitunes sends the file as `multipart/form-data` with field name `file`, plus the standard Subsonic auth params (`u`, `t`, `s`, `v`, `c`, `f`) on the query string — so the receiver can verify the caller without ever seeing a plaintext password.
 
-### Minimal PHP receiver (~25 lines)
+The upload server should also expose a sibling `DELETE /remove?songId=…` endpoint so the in-app "Remove song from library" menu works. Both routes share auth verification.
 
-Drop this as `/var/www/music.adrianszydlo.ie/upload.php` and protect it behind HTTPS:
+### Recommended: Node + Express receiver
+
+```js
+// upload-server.js
+const express = require('express');
+const multer  = require('multer');
+const path    = require('path');
+const fs      = require('fs');
+
+const app       = express();
+const MUSIC_DIR = '/music/Uploads';
+const ND_URL    = 'http://127.0.0.1:4533';
+const ALLOWED_USERS = ['your_navidrome_user'];
+
+async function verifyToken(u, t, s) {
+  if (!ALLOWED_USERS.includes(u)) return false;
+  try {
+    const resp = await fetch(
+      `${ND_URL}/rest/ping.view?u=${u}&t=${t}&s=${s}&v=1.16.1&c=upload&f=json`
+    );
+    const data = await resp.json();
+    return data['subsonic-response']?.status === 'ok';
+  } catch { return false; }
+}
+
+const requireAuth = async (req, res, next) => {
+  const { u, t, s } = req.query;
+  if (!await verifyToken(u, t, s)) return res.status(401).json({ error: 'Unauthorized' });
+  next();
+};
+
+// --- Upload ---
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => { fs.mkdirSync(MUSIC_DIR, { recursive: true }); cb(null, MUSIC_DIR); },
+  filename:    (req, file, cb) => cb(null, file.originalname)
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 200 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = ['.mp3','.flac','.m4a','.aac','.ogg','.opus','.wav']
+      .includes(path.extname(file.originalname).toLowerCase());
+    cb(ok ? null : new Error('Unsupported format'), ok);
+  }
+});
+
+app.post('/upload', requireAuth, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file' });
+  const { u, t, s } = req.query;
+  fetch(`${ND_URL}/rest/startScan.view?u=${u}&t=${t}&s=${s}&v=1.16.1&c=navitunes&f=json`).catch(() => {});
+  res.json({ status: 'ok', file: req.file.originalname });
+});
+
+// --- Remove (only files under MUSIC_DIR get touched) ---
+app.delete('/remove', requireAuth, async (req, res) => {
+  const { u, t, s, songId } = req.query;
+  if (!songId) return res.status(400).json({ error: 'songId required' });
+
+  // Resolve song path from Navidrome.
+  const r = await fetch(`${ND_URL}/rest/getSong.view?u=${u}&t=${t}&s=${s}&v=1.16.1&c=navitunes&f=json&id=${songId}`);
+  const j = await r.json();
+  const songPath = j['subsonic-response']?.song?.path;
+  if (!songPath) return res.status(404).json({ error: 'Song not found' });
+
+  // Path Navidrome returns is relative to its music root. Confirm it lives
+  // under our Uploads directory before touching the disk.
+  const absolute = path.resolve('/music', songPath);
+  const safeRoot = path.resolve(MUSIC_DIR) + path.sep;
+  if (!absolute.startsWith(safeRoot)) {
+    return res.status(403).json({ error: 'Only uploaded files can be removed' });
+  }
+
+  try { fs.unlinkSync(absolute); } catch (e) { return res.status(500).json({ error: e.message }); }
+  fetch(`${ND_URL}/rest/startScan.view?u=${u}&t=${t}&s=${s}&v=1.16.1&c=navitunes&f=json`).catch(() => {});
+  res.json({ status: 'ok' });
+});
+
+app.use((err, req, res, next) => res.status(400).json({ error: err.message }));
+app.listen(3001, '127.0.0.1', () => console.log('Upload server on :3001'));
+```
+
+And in your Caddyfile, expose **both** routes:
+
+```caddy
+:8080 {
+    handle /upload* { reverse_proxy 127.0.0.1:3001 }
+    handle /remove* { reverse_proxy 127.0.0.1:3001 }
+    handle          { reverse_proxy 127.0.0.1:4533 }
+}
+```
+
+In Navitunes Settings → Upload, set the URL to `https://music.example.com:8080` (just the base — the app appends `/upload` and `/remove` itself). If you have an existing URL with `/upload` at the end, it still works; the suffix is stripped.
+
+### Alternative: minimal PHP receiver
+
+Drop this as `/var/www/music.adrianszydlo.ie/upload.php` and protect it behind HTTPS (no /remove route in this minimal variant):
 
 ```php
 <?php

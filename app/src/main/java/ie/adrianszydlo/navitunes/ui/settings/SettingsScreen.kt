@@ -91,8 +91,12 @@ fun SettingsScreen(
             val result = container.uploadService.upload(uri, endpoint)
             uploading = false
             val msg = when (result) {
-                is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Success -> result.message
+                is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Success -> {
+                    container.librarySignals.notifyChanged()
+                    result.message
+                }
                 is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Failure -> "Upload failed: ${result.message}"
+                is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous -> "Upload ambiguous."
             }
             Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
         }
@@ -256,7 +260,7 @@ fun SettingsScreen(
         item {
             GroupHeader("About")
             Group {
-                StaticRow("Version", "0.2.0")
+                StaticRow("Version", "0.3.0")
                 StaticRow("Build", "Navitunes Android")
                 StaticRow("Source", "github.com/adrianszydlo/navitunes")
             }
@@ -350,6 +354,7 @@ private fun ProfileSettingsRow(
 }
 
 @Composable
+@Suppress("SameParameterValue")
 private fun ToggleRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
@@ -374,6 +379,7 @@ private fun ToggleRow(
 }
 
 @Composable
+@Suppress("SameParameterValue")
 private fun ClickRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,

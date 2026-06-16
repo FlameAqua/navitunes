@@ -90,4 +90,19 @@ class LibraryRepository(private val api: ApiClient) {
             )
         }
     }
+
+    /** Removes the entry at [songIndex] (0-based) from the playlist. */
+    suspend fun removeFromPlaylist(playlistId: String, songIndex: Int) = withContext(Dispatchers.IO) {
+        api.call(
+            "updatePlaylist.view",
+            mapOf("playlistId" to playlistId, "songIndexToRemove" to songIndex.toString())
+        )
+        Unit
+    }
+
+    /** Deletes the playlist with the given id. */
+    suspend fun deletePlaylist(playlistId: String) = withContext(Dispatchers.IO) {
+        api.call("deletePlaylist.view", mapOf("id" to playlistId))
+        Unit
+    }
 }

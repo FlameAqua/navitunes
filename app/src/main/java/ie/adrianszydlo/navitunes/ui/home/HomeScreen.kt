@@ -130,7 +130,8 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(reloadTick, activeId) { load() }
+    val signalTick by container.librarySignals.refresh.collectAsState()
+    LaunchedEffect(reloadTick, activeId, signalTick) { load() }
 
     Column(Modifier.fillMaxSize()) {
         ScreenTopBar(title = "Home")
@@ -207,6 +208,7 @@ fun HomeScreen(
                 scope.launch {
                     runCatching { repo.createPlaylist(name) }
                         .onSuccess {
+                            container.librarySignals.notifyChanged()
                             Toast.makeText(ctx, "Created \"$name\"", Toast.LENGTH_SHORT).show()
                             reloadTick++
                         }

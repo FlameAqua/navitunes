@@ -20,9 +20,12 @@ import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.PlaylistRemove
 import androidx.compose.material.icons.outlined.QueuePlayNext
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -45,7 +48,9 @@ import ie.adrianszydlo.navitunes.data.api.Album
 import ie.adrianszydlo.navitunes.data.api.Artist
 import ie.adrianszydlo.navitunes.data.api.Playlist
 import ie.adrianszydlo.navitunes.data.api.Song
+import ie.adrianszydlo.navitunes.ui.nav.LocalDownloadedIds
 import ie.adrianszydlo.navitunes.ui.theme.Accent
+import ie.adrianszydlo.navitunes.ui.theme.Success
 import ie.adrianszydlo.navitunes.ui.theme.SurfaceElev
 import ie.adrianszydlo.navitunes.ui.theme.Text3
 import ie.adrianszydlo.navitunes.ui.theme.Text4
@@ -132,15 +137,28 @@ fun SongRow(
             )
             Spacer(Modifier.width(8.dp))
         }
+        val downloaded = LocalDownloadedIds.current.contains(song.id)
         Column(Modifier.weight(1f)) {
-            Text(
-                song.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                color = if (isPlaying) Accent else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    song.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isPlaying) Accent else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (downloaded) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(
+                        Icons.Outlined.DownloadDone,
+                        contentDescription = "Available offline",
+                        tint = Success,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
             val subtitle = buildString {
                 append(song.artist.orEmpty())
                 if (!song.album.isNullOrBlank()) {
@@ -240,6 +258,31 @@ private fun SongMenu(
             DropdownMenuItem(
                 text = { Text("Go to album") },
                 leadingIcon = { Icon(Icons.Outlined.Album, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onRemoveFromPlaylist?.let {
+            DropdownMenuItem(
+                text = { Text("Remove from playlist") },
+                leadingIcon = { Icon(Icons.Outlined.PlaylistRemove, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onRemoveFromLibrary?.let {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        "Remove song from library",
+                        color = ie.adrianszydlo.navitunes.ui.theme.Danger
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Outlined.DeleteSweep,
+                        contentDescription = null,
+                        tint = ie.adrianszydlo.navitunes.ui.theme.Danger
+                    )
+                },
                 onClick = { onDismiss(); it() }
             )
         }

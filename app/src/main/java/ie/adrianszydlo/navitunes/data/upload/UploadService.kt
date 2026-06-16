@@ -3,11 +3,16 @@ package ie.adrianszydlo.navitunes.data.upload
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import androidx.core.net.toUri
 import android.provider.OpenableColumns
 import ie.adrianszydlo.navitunes.data.api.ApiClient
 import ie.adrianszydlo.navitunes.data.auth.SubsonicAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.Request
@@ -38,9 +43,107 @@ class UploadService(
     /** Cap individual uploads. Anything bigger should go over scp/SMB. */
     private val maxSizeBytes = 200L * 1024 * 1024 // 200 MB
 
+    @Serializable
+    data class RemoveCandidate(val relative: String, val sizeBytes: Long = 0L)
+
     sealed interface Result {
         data class Success(val message: String) : Result
         data class Failure(val message: String) : Result
+
+        /** Server found multiple files matching the song; user must pick one. */
+        data class Ambiguous(
+            val songId: String,
+            val candidates: List<RemoveCandidate>
+        ) : Result
+    }
+
+    private val responseJson = Json { ignoreUnknownKeys = true }
+
+    /**
+     * Derives sibling endpoint URLs from whatever the user typed:
+     *   "https://music.example.com/upload" → base "https://music.example.com"
+     *   "https://music.example.com"        → base "https://music.example.com"
+     * so we can build /upload and /remove off the same setting.
+     */
+    private fun base(endpoint: String): String =
+        endpoint.trimEnd('/').removeSuffix("/upload").removeSuffix("/remove")
+
+    private fun uploadUrl(endpoint: String) = "${base(endpoint)}/upload"
+    private fun removeUrl(endpoint: String) = "${base(endpoint)}/remove"
+
+    /**
+     * Asks the user's upload server to delete a song.
+     * If [explicitPath] is non-null it's sent as `?path=` to disambiguate
+     * between multiple disk files matching the same songId.
+     */
+    suspend fun removeFromLibrary(
+        songId: String,
+        endpoint: String,
+        explicitPath: String? = null
+    ): Result = withContext(Dispatchers.IO) {
+        val profile = api.activeProfile()
+            ?: return@withContext Result.Failure("No active profile")
+
+        val authedUrl = removeUrl(endpoint).toUri().buildUpon().apply {
+            for ((k, v) in SubsonicAuth.params(profile.username, profile.password)) {
+                appendQueryParameter(k, v)
+            }
+            appendQueryParameter("songId", songId)
+            if (!explicitPath.isNullOrBlank()) appendQueryParameter("path", explicitPath)
+        }.build().toString()
+
+        val request = Request.Builder()
+            .url(authedUrl)
+            .method("DELETE", null)
+            .build()
+
+        return@withContext try {
+            api.okHttp.newCall(request).execute().use { resp ->
+                val body = runCatching { resp.body.string() }.getOrDefault("")
+                when {
+                    resp.isSuccessful -> {
+                        runCatching { api.call("startScan.view") }
+                        Result.Success("Removed from library. Rescan triggered.")
+                    }
+                    resp.code == 300 -> parseAmbiguous(songId, body)
+                        ?: Result.Failure("Server returned 300 but no candidates")
+                    resp.code == 401 -> Result.Failure("Server rejected auth — check ALLOWED_USERS on the receiver.")
+                    resp.code == 403 -> Result.Failure("Server refused to delete: ${shortErr(body) ?: "path outside music root"}.")
+                    resp.code == 404 -> Result.Failure("Server couldn't find the file: ${shortErr(body) ?: "song not found"}.")
+                    else -> Result.Failure("Server returned HTTP ${resp.code}${shortErr(body)?.let { " — $it" } ?: ""}")
+                }
+            }
+        } catch (t: Throwable) {
+            Result.Failure(t.message ?: t.javaClass.simpleName)
+        }
+    }
+
+    /** Parses a `300 Multiple Choices` response into the Ambiguous result. */
+    private fun parseAmbiguous(songId: String, body: String): Result.Ambiguous? {
+        if (body.isBlank()) return null
+        return runCatching {
+            val root = responseJson.parseToJsonElement(body) as? JsonObject ?: return@runCatching null
+            val arr = root["candidates"] as? kotlinx.serialization.json.JsonArray ?: return@runCatching null
+            val list = arr.mapNotNull { el ->
+                val obj = el as? JsonObject ?: return@mapNotNull null
+                val rel = (obj["relative"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+                val size = (obj["sizeBytes"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L
+                RemoveCandidate(relative = rel, sizeBytes = size)
+            }
+            if (list.isEmpty()) null else Result.Ambiguous(songId = songId, candidates = list)
+        }.getOrNull()
+    }
+
+    /** Best-effort extraction of the `error` field from a JSON error body. */
+    private fun shortErr(body: String): String? {
+        if (body.isBlank()) return null
+        return runCatching {
+            responseJson.parseToJsonElement(body)
+                .let { it as? JsonObject }
+                ?.get("error")
+                ?.let { it as? JsonPrimitive }
+                ?.content
+        }.getOrNull()
     }
 
     suspend fun upload(uri: Uri, endpoint: String): Result = withContext(Dispatchers.IO) {
@@ -83,7 +186,7 @@ class UploadService(
             .build()
 
         // Append Subsonic auth params so the receiver can verify.
-        val url = buildAuthedUrl(endpoint, profile.username, profile.password)
+        val url = buildAuthedUrl(uploadUrl(endpoint), profile.username, profile.password)
         val request = Request.Builder().url(url).post(multipart).build()
 
         return@withContext try {
@@ -102,7 +205,7 @@ class UploadService(
     }
 
     private fun buildAuthedUrl(endpoint: String, username: String, password: String): String {
-        val base = android.net.Uri.parse(endpoint).buildUpon()
+        val base = endpoint.toUri().buildUpon()
         for ((k, v) in SubsonicAuth.params(username, password)) {
             base.appendQueryParameter(k, v)
         }

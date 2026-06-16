@@ -30,6 +30,21 @@ class DownloadRepository(
         return db.dao().observe(id)
     }
 
+    /** Stream of song IDs that are *fully downloaded* under the active profile. */
+    fun observeDownloadedIdsForActiveProfile(): Flow<Set<String>> {
+        val id = profileStore.activeId.value ?: return emptyFlow()
+        return kotlinx.coroutines.flow.flow {
+            db.dao().observe(id).collect { rows ->
+                emit(
+                    rows.asSequence()
+                        .filter { it.status == STATUS_COMPLETED }
+                        .map { it.songId }
+                        .toSet()
+                )
+            }
+        }
+    }
+
     suspend fun fileUriForSongOrNull(songId: String): String? {
         val pid = profileStore.activeId.value ?: return null
         val row = db.dao().bySongId(songId, pid) ?: return null

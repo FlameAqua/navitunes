@@ -174,6 +174,32 @@ class PlayerController(private val appContext: Context) {
         if (c.isPlaying) c.pause() else c.play()
     }
 
+    /** Hard-stop: clears the queue and dismisses the mini-player. */
+    fun stop() {
+        val c = controller ?: return
+        c.stop()
+        c.clearMediaItems()
+        _queue.value = emptyList()
+        _currentItem.value = null
+        _currentIndex.value = -1
+        _isPlaying.value = false
+    }
+
+    /** Removes every queue entry matching [songId] (server-side delete cleanup). */
+    fun removeFromQueueById(songId: String) {
+        val c = controller ?: return
+        // Walk backwards so removal-by-index stays stable.
+        val toRemove = (0 until c.mediaItemCount).filter { c.getMediaItemAt(it).mediaId == songId }
+        if (toRemove.isEmpty()) return
+        for (idx in toRemove.reversed()) c.removeMediaItem(idx)
+        _queue.value = _queue.value.filterNot { it.id == songId }
+        if (c.mediaItemCount == 0) {
+            _currentItem.value = null
+            _currentIndex.value = -1
+            _isPlaying.value = false
+        }
+    }
+
     fun next() { controller?.seekToNextMediaItem() }
     fun prev() {
         val c = controller ?: return

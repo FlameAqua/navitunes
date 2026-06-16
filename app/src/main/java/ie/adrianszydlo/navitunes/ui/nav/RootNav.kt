@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -107,17 +108,122 @@ fun RootNav() {
 
 @Composable
 private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
+    val container = NavitunesApp.container()
+    val ctx = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
     var songForPlaylist by remember { mutableStateOf<Song?>(null) }
+    var songForRemoval by remember { mutableStateOf<Song?>(null) }
+    var ambiguousRemoval by remember {
+        mutableStateOf<Pair<Song, ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous>?>(null)
+    }
+
     val openPicker: (Song) -> Unit = remember { { song -> songForPlaylist = song } }
+    val openRemove: (Song) -> Unit = remember { { song -> songForRemoval = song } }
+
+    val downloadedIds by container.downloadRepository
+        .observeDownloadedIdsForActiveProfile()
+        .collectAsState(initial = emptySet())
+    val uploadEndpoint by container.preferences.uploadEndpoint.collectAsState(initial = null)
+
     CompositionLocalProvider(
         LocalPlayerController provides controller,
-        LocalAddToPlaylistRequest provides openPicker
+        LocalAddToPlaylistRequest provides openPicker,
+        LocalRemoveSongRequest provides openRemove,
+        LocalDownloadedIds provides downloadedIds
     ) {
         MainShellInner(controller = controller, onAddProfile = onAddProfile)
+
         songForPlaylist?.let { song ->
             AddToPlaylistDialog(song = song, onDismiss = { songForPlaylist = null })
         }
+
+        songForRemoval?.let { song ->
+            ie.adrianszydlo.navitunes.ui.common.ConfirmDialog(
+                title = "Remove \"${song.title}\" from library?",
+                message = "This permanently deletes the audio file from your server. " +
+                    "Make sure you actually want it gone.",
+                confirmLabel = "Remove",
+                destructive = true,
+                onConfirm = {
+                    val endpoint = uploadEndpoint
+                    if (endpoint.isNullOrBlank()) {
+                        android.widget.Toast.makeText(
+                            ctx, "Set an upload URL in Settings first.",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        scope.launch {
+                            val result = container.uploadService.removeFromLibrary(song.id, endpoint)
+                            when (result) {
+                                is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Success -> {
+                                    onSongRemoved(container, controller, song)
+                                    android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                                is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Failure ->
+                                    android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
+                                is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous ->
+                                    ambiguousRemoval = song to result
+                            }
+                        }
+                    }
+                },
+                onDismiss = { songForRemoval = null }
+            )
+        }
+
+        ambiguousRemoval?.let { (song, ambig) ->
+            RemoveCandidatePicker(
+                songTitle = song.title,
+                candidates = ambig.candidates,
+                onPick = { picked ->
+                    val endpoint = uploadEndpoint ?: return@RemoveCandidatePicker
+                    scope.launch {
+                        val result = container.uploadService.removeFromLibrary(
+                            songId = song.id,
+                            endpoint = endpoint,
+                            explicitPath = picked.relative
+                        )
+                        when (result) {
+                            is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Success -> {
+                                onSongRemoved(container, controller, song)
+                                android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
+                            }
+                            is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Failure ->
+                                android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
+                            is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous ->
+                                android.widget.Toast.makeText(ctx, "Still ambiguous — try again.", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    ambiguousRemoval = null
+                },
+                onDismiss = { ambiguousRemoval = null }
+            )
+        }
     }
+}
+
+/**
+ * Cleanup after the server confirms a song was deleted:
+ *   - drop it from the active queue (and stop if it was the current track),
+ *   - purge it from Recently Played,
+ *   - tick the library-changed signal so screens reload.
+ */
+private fun onSongRemoved(
+    container: ie.adrianszydlo.navitunes.AppContainer,
+    controller: PlayerController,
+    song: Song
+) {
+    val wasCurrent = controller.currentItem.value?.id == song.id
+    controller.removeFromQueueById(song.id)
+    if (wasCurrent) controller.stop()
+
+    container.appScope.launch {
+        container.profileStore.activeId.value?.let { profileId ->
+            container.recentlyPlayedStore.purge(profileId, song.id)
+        }
+    }
+    container.librarySignals.notifyChanged()
 }
 
 @Composable
@@ -219,7 +325,13 @@ private fun MainShellInner(controller: PlayerController, onAddProfile: () -> Uni
                     PlaylistScreen(
                         id = id,
                         onBack = { nav.popBackStack() },
-                        onPlay = { songs, idx -> controller.play(songs, idx) }
+                        onPlay = { songs, idx -> controller.play(songs, idx) },
+                        onGoHome = {
+                            nav.navigate(Routes.HOME) {
+                                popUpTo(nav.graph.findStartDestination().id) { inclusive = false }
+                                launchSingleTop = true
+                            }
+                        }
                     )
                 }
             }

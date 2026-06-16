@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.PlaylistAdd
+import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -99,6 +99,7 @@ fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
                                                 val created = container.libraryRepository.createPlaylist(name)
                                                 container.libraryRepository.addToPlaylist(created.id, listOf(song.id))
                                             }.onSuccess {
+                                                container.librarySignals.notifyChanged()
                                                 Toast.makeText(ctx, "Added to \"$name\"", Toast.LENGTH_SHORT).show()
                                                 onDismiss()
                                             }.onFailure {
@@ -119,7 +120,7 @@ fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
                                 .padding(vertical = 10.dp),
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Outlined.PlaylistAdd, contentDescription = null, tint = Accent)
+                            Icon(Icons.AutoMirrored.Outlined.PlaylistAdd, contentDescription = null, tint = Accent)
                             Spacer(Modifier.size(12.dp))
                             Text("New playlist…", color = Accent, fontWeight = FontWeight.Medium)
                         }
@@ -142,6 +143,7 @@ fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
                                                 runCatching {
                                                     container.libraryRepository.addToPlaylist(p.id, listOf(song.id))
                                                 }.onSuccess {
+                                                    container.librarySignals.notifyChanged()
                                                     Toast.makeText(ctx, "Added to \"${p.name}\"", Toast.LENGTH_SHORT).show()
                                                     onDismiss()
                                                 }.onFailure {

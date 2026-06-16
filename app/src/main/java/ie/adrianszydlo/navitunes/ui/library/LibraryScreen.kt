@@ -7,8 +7,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Album
@@ -55,22 +58,6 @@ import ie.adrianszydlo.navitunes.ui.theme.Surface
 import ie.adrianszydlo.navitunes.ui.theme.Text2
 import kotlinx.coroutines.launch
 
-private enum class LibTab(val label: String) {
-    ALBUMS("Albums"),
-    ARTISTS("Artists"),
-    PLAYLISTS("Playlists"),
-    FAVORITES("Favorites")
-}
-
-private sealed interface TabState {
-    data object Loading : TabState
-    data class Error(val message: String) : TabState
-    data class Albums(val list: List<Album>) : TabState
-    data class Artists(val list: List<Artist>) : TabState
-    data class Playlists(val list: List<Playlist>) : TabState
-    data class Favorites(val starred: Starred) : TabState
-}
-
 @Composable
 fun LibraryScreen(
     onAlbum: (String) -> Unit,
@@ -79,38 +66,37 @@ fun LibraryScreen(
     onPlay: (List<Song>, Int) -> Unit
 ) {
     val repo = NavitunesApp.container().libraryRepository
-    val scope = rememberCoroutineScope()
-    var tab by remember { mutableStateOf(LibTab.ALBUMS) }
+    var tab by remember { mutableStateOf(LibTab.Albums) }
     var state by remember { mutableStateOf<TabState>(TabState.Loading) }
+    val scope = rememberCoroutineScope()
 
-    fun load(forTab: LibTab) {
-        state = TabState.Loading
+    fun load(t: LibTab) {
         scope.launch {
-            state = try {
-                when (forTab) {
-                    LibTab.ALBUMS -> TabState.Albums(repo.albumList("alphabeticalByName", 500))
-                    LibTab.ARTISTS -> TabState.Artists(repo.allArtists())
-                    LibTab.PLAYLISTS -> TabState.Playlists(repo.allPlaylists())
-                    LibTab.FAVORITES -> TabState.Favorites(repo.starred())
-                }
-            } catch (t: Throwable) {
-                TabState.Error(t.message ?: "Unknown error")
+            state = TabState.Loading
+            val res = when (t) {
+                LibTab.Albums -> runCatching { TabState.Albums(repo.albumList("newest", 200)) }
+                LibTab.Artists -> runCatching { TabState.Artists(repo.allArtists()) }
+                LibTab.Playlists -> runCatching { TabState.Playlists(repo.allPlaylists()) }
+                LibTab.Favorites -> runCatching { TabState.Favorites(repo.starred()) }
             }
+            state = res.getOrElse { TabState.Error(it.message ?: "Unknown error") }
         }
     }
 
-    LaunchedEffect(tab) { load(tab) }
+    val signalTick by NavitunesApp.container().librarySignals.refresh.collectAsState()
+    LaunchedEffect(tab, signalTick) { load(tab) }
 
     Column(Modifier.fillMaxSize()) {
         ScreenTopBar(title = "Library")
         TabRow(current = tab, onSelect = { tab = it })
+
         when (val s = state) {
             TabState.Loading -> Loading()
             is TabState.Error -> ErrorState("Could not load library", s.message, onRetry = { load(tab) })
             is TabState.Albums -> AlbumsGrid(s.list, onAlbum)
             is TabState.Artists -> ArtistsList(s.list, onArtist)
             is TabState.Playlists -> PlaylistsList(s.list, onPlaylist)
-            is TabState.Favorites -> FavoritesView(s.starred, onAlbum, onPlay)
+            is TabState.Favorites -> FavoritesContent(s.starred, onAlbum, onPlay)
         }
     }
 }
@@ -148,9 +134,7 @@ private fun AlbumsGrid(albums: List<Album>, onAlbum: (String) -> Unit) {
     }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp).let {
-            PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 200.dp)
-        },
+        contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
@@ -167,7 +151,12 @@ private fun ArtistsList(artists: List<Artist>, onArtist: (String) -> Unit) {
         return
     }
     LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp).let {
-        PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 200.dp)
+        PaddingValues(
+            start = it.calculateStartPadding(LayoutDirection.Ltr),
+            end = it.calculateEndPadding(LayoutDirection.Ltr),
+            top = it.calculateTopPadding(),
+            bottom = 200.dp
+        )
     }) {
         items(artists, key = { it.id }) { a ->
             ArtistRow(a, onClick = { onArtist(a.id) })
@@ -189,7 +178,7 @@ private fun PlaylistsList(playlists: List<Playlist>, onPlaylist: (String) -> Uni
 }
 
 @Composable
-private fun FavoritesView(
+private fun FavoritesContent(
     starred: Starred,
     onAlbum: (String) -> Unit,
     onPlay: (List<Song>, Int) -> Unit
@@ -199,42 +188,57 @@ private fun FavoritesView(
         EmptyState("No favorites yet", "Tap the heart on songs to favorite them.")
         return
     }
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 200.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
+
+    LazyColumn(contentPadding = PaddingValues(bottom = 200.dp)) {
         if (starred.album.isNotEmpty()) {
-            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                SectionHead("Albums")
-            }
-            items(starred.album, key = { it.id }) { album ->
-                AlbumCard(album = album, onClick = { onAlbum(album.id) })
-            }
-        }
-        if (starred.song.isNotEmpty()) {
-            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                Spacer(Modifier.height(8.dp))
-                SectionHead("Songs")
-            }
-            starred.song.forEachIndexed { idx, song ->
-                item(
-                    key = "song-${song.id}",
-                    span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }
+            item { SectionHead("Albums") }
+            item {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.height(240.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    SongRow(
-                        song = song,
-                        onClick = { onPlay(starred.song, idx) },
-                        actions = rememberSongActions(
-                            song = song,
-                            controller = controller,
-                            onOpenAlbum = onAlbum,
-                            playNow = { onPlay(starred.song, idx) }
-                        )
-                    )
+                    items(starred.album.take(4), key = { it.id }) { album ->
+                        AlbumCard(album = album, onClick = { onAlbum(album.id) })
+                    }
                 }
+            }
+            item { Spacer(Modifier.height(8.dp)) }
+        }
+
+        if (starred.song.isNotEmpty()) {
+            item { SectionHead("Songs") }
+            items(starred.song, key = { it.id }) { s ->
+                val actions = rememberSongActions(
+                    song = s,
+                    controller = controller,
+                    onOpenAlbum = { s.albumId?.let { onAlbum(it) } },
+                    playNow = { onPlay(listOf(s), 0) }
+                )
+                SongRow(
+                    song = s,
+                    onClick = { onPlay(starred.song, starred.song.indexOf(s)) },
+                    actions = actions
+                )
             }
         }
     }
+}
+
+private enum class LibTab(val label: String) {
+    Albums("Albums"),
+    Artists("Artists"),
+    Playlists("Playlists"),
+    Favorites("Favorites")
+}
+
+private sealed interface TabState {
+    data object Loading : TabState
+    data class Error(val message: String) : TabState
+    data class Albums(val list: List<Album>) : TabState
+    data class Artists(val list: List<Artist>) : TabState
+    data class Playlists(val list: List<Playlist>) : TabState
+    data class Favorites(val starred: Starred) : TabState
 }

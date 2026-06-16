@@ -1,6 +1,7 @@
 package ie.adrianszydlo.navitunes
 
 import android.content.Context
+import ie.adrianszydlo.navitunes.data.LibrarySignals
 import ie.adrianszydlo.navitunes.data.api.ApiClient
 import ie.adrianszydlo.navitunes.data.auth.ProfileStore
 import ie.adrianszydlo.navitunes.data.offline.DownloadDb
@@ -26,6 +27,7 @@ class AppContainer(private val appContext: Context) {
     val preferences: AppPreferences by lazy { AppPreferences(appContext) }
     val recentlyPlayedStore: RecentlyPlayedStore by lazy { RecentlyPlayedStore(appContext) }
     val profileStore: ProfileStore by lazy { ProfileStore(appContext) }
+    val librarySignals: LibrarySignals = LibrarySignals()
 
     val apiClient: ApiClient by lazy { ApiClient(profileStore) }
     val libraryRepository: LibraryRepository by lazy { LibraryRepository(apiClient) }

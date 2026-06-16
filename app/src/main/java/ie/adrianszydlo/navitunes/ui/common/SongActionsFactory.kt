@@ -11,6 +11,7 @@ import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.playback.PlayerController
 import ie.adrianszydlo.navitunes.ui.nav.LocalAddToPlaylistRequest
+import ie.adrianszydlo.navitunes.ui.nav.LocalRemoveSongRequest
 import kotlinx.coroutines.launch
 
 /**
@@ -25,15 +26,18 @@ fun rememberSongActions(
     song: Song,
     controller: PlayerController,
     onOpenAlbum: ((String) -> Unit)? = null,
-    playNow: (() -> Unit)? = null
+    playNow: (() -> Unit)? = null,
+    onRemoveFromPlaylist: (() -> Unit)? = null
 ): SongActions {
     val container = NavitunesApp.container()
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     val wifiOnly by container.preferences.wifiOnly.collectAsState(initial = false)
+    val uploadEndpoint by container.preferences.uploadEndpoint.collectAsState(initial = null)
     val openPicker = LocalAddToPlaylistRequest.current
+    val openRemove = LocalRemoveSongRequest.current
 
-    return remember(song.id, playNow, onOpenAlbum, wifiOnly) {
+    return remember(song.id, playNow, onOpenAlbum, wifiOnly, uploadEndpoint, onRemoveFromPlaylist) {
         SongActions(
             onPlay = playNow,
             onPlayNext = { controller.playNext(song) },
@@ -63,6 +67,12 @@ fun rememberSongActions(
             },
             onOpenAlbum = if (onOpenAlbum != null && !song.albumId.isNullOrBlank()) {
                 { onOpenAlbum(song.albumId) }
+            } else null,
+            onRemoveFromPlaylist = onRemoveFromPlaylist,
+            // Only surface "Remove from library" when an upload server is configured —
+            // that's the only path that can delete files on the server side.
+            onRemoveFromLibrary = if (!uploadEndpoint.isNullOrBlank()) {
+                { openRemove(song) }
             } else null
         )
     }

@@ -1,10 +1,7 @@
 package ie.adrianszydlo.navitunes.ui.detail
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,10 +12,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -46,7 +43,8 @@ fun DetailHeader(
     subtitle: String?,
     meta: String,
     coverArt: String?,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    trailing: (@Composable () -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -56,8 +54,10 @@ fun DetailHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = onBack) {
-            Icon(Icons.Outlined.ArrowBack, contentDescription = "Back", tint = Text2)
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Text2)
         }
+        Spacer(Modifier.weight(1f))
+        trailing?.invoke()
     }
     Row(
         modifier = Modifier
@@ -116,7 +116,7 @@ fun DetailActions(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
     ) {
         Button(
             onClick = onPlay,

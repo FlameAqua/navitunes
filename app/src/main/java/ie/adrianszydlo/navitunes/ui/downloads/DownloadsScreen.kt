@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -39,6 +40,7 @@ import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.data.offline.DownloadEntity
 import ie.adrianszydlo.navitunes.data.offline.DownloadRepository
+import ie.adrianszydlo.navitunes.ui.common.ConfirmDialog
 import ie.adrianszydlo.navitunes.ui.common.EmptyState
 import ie.adrianszydlo.navitunes.ui.common.formatBytes
 import ie.adrianszydlo.navitunes.ui.common.formatDuration
@@ -59,6 +61,8 @@ fun DownloadsScreen(
         .collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var totalBytes by remember { mutableLongStateOf(0L) }
+    var confirmClearAll by remember { mutableStateOf(false) }
+    var entryToRemove by remember { mutableStateOf<DownloadEntity?>(null) }
 
     LaunchedEffect(downloads) {
         totalBytes = container.downloadRepository.totalBytesForActiveProfile()
@@ -89,9 +93,7 @@ fun DownloadsScreen(
                 modifier = Modifier.weight(1f)
             )
             if (downloads.isNotEmpty()) {
-                TextButton(onClick = {
-                    scope.launch { container.downloadRepository.clearAllForActiveProfile() }
-                }) {
+                TextButton(onClick = { confirmClearAll = true }) {
                     Icon(Icons.Outlined.Delete, contentDescription = null, tint = Danger)
                     Spacer(Modifier.height(0.dp))
                     Text("Clear all", color = Danger)
@@ -128,12 +130,39 @@ fun DownloadsScreen(
                             onPlay(playable, idx)
                         }
                     },
-                    onRemove = {
-                        scope.launch { container.downloadRepository.removeDownload(d.songId) }
-                    }
+                    onRemove = { entryToRemove = d }
                 )
             }
         }
+    }
+
+    if (confirmClearAll) {
+        ConfirmDialog(
+            title = "Clear all offline downloads?",
+            message = "Removes ${downloads.size} file${if (downloads.size == 1) "" else "s"} (${formatBytes(totalBytes)}) " +
+                "from this device. Songs stay on the server.",
+            confirmLabel = "Clear all",
+            destructive = true,
+            onConfirm = {
+                scope.launch { container.downloadRepository.clearAllForActiveProfile() }
+            },
+            onDismiss = { confirmClearAll = false }
+        )
+    }
+
+    val pending = entryToRemove
+    if (pending != null) {
+        ConfirmDialog(
+            title = "Remove \"${pending.title}\"?",
+            message = "Deletes the downloaded file from this device (${formatBytes(pending.sizeBytes)}). " +
+                "The song stays on your server.",
+            confirmLabel = "Remove",
+            destructive = true,
+            onConfirm = {
+                scope.launch { container.downloadRepository.removeDownload(pending.songId) }
+            },
+            onDismiss = { entryToRemove = null }
+        )
     }
 }
 

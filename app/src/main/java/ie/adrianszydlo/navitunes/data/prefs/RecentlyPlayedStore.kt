@@ -7,7 +7,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import ie.adrianszydlo.navitunes.data.api.Song
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 private val Context.recentDataStore by preferencesDataStore("navitunes_recent")
@@ -42,8 +41,17 @@ class RecentlyPlayedStore(private val context: Context) {
         }
     }
 
-    suspend fun clear(profileId: String) {
-        context.recentDataStore.edit { it.remove(key(profileId)) }
+    /** Drop any cached entries matching [songId] — used after server-side deletion. */
+    suspend fun purge(profileId: String, songId: String) {
+        context.recentDataStore.edit { prefs ->
+            val current = prefs[key(profileId)]?.let { raw ->
+                runCatching { json.decodeFromString<List<Song>>(raw) }.getOrDefault(emptyList())
+            } ?: return@edit
+            val filtered = current.filterNot { it.id == songId }
+            if (filtered.size != current.size) {
+                prefs[key(profileId)] = json.encodeToString(filtered)
+            }
+        }
     }
 
     companion object {

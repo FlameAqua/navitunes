@@ -1,6 +1,7 @@
 package ie.adrianszydlo.navitunes.data.offline
 
 import android.content.Context
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import ie.adrianszydlo.navitunes.NavitunesApp
@@ -24,6 +25,8 @@ class DownloadWorker(
         val profileId = inputData.getString(KEY_PROFILE_ID) ?: return@withContext Result.failure()
         val streamUrl = inputData.getString(KEY_STREAM_URL) ?: return@withContext Result.failure()
         val targetPath = inputData.getString(KEY_TARGET_PATH) ?: return@withContext Result.failure()
+
+        Log.d(TAG, "Worker started for song=$songId profile=$profileId target=$targetPath")
 
         val container = NavitunesApp.container()
         val dao = container.downloadDb.dao()
@@ -75,13 +78,15 @@ class DownloadWorker(
             }
             Result.success()
         } catch (t: Throwable) {
+            Log.e(TAG, "Download failed for $songId", t)
             runCatching { tmp.delete() }
-            dao.updateStatus(songId, profileId, DownloadRepository.STATUS_FAILED, t.message)
+            dao.updateStatus(songId, profileId, DownloadRepository.STATUS_FAILED, t.message ?: t.javaClass.simpleName)
             if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
 
     companion object {
+        private const val TAG = "Navitunes/DL"
         const val KEY_SONG_ID = "songId"
         const val KEY_PROFILE_ID = "profileId"
         const val KEY_STREAM_URL = "streamUrl"

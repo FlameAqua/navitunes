@@ -16,6 +16,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
@@ -26,6 +28,8 @@ import ie.adrianszydlo.navitunes.ui.common.ErrorState
 import ie.adrianszydlo.navitunes.ui.common.Loading
 import ie.adrianszydlo.navitunes.ui.common.SongRow
 import ie.adrianszydlo.navitunes.ui.common.formatDuration
+import ie.adrianszydlo.navitunes.ui.common.rememberSongActions
+import ie.adrianszydlo.navitunes.ui.nav.LocalPlayerController
 
 @Composable
 fun AlbumScreen(
@@ -36,6 +40,7 @@ fun AlbumScreen(
     val container = NavitunesApp.container()
     val repo = container.libraryRepository
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     val wifiOnly by container.preferences.wifiOnly.collectAsState(initial = false)
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -83,6 +88,11 @@ fun AlbumScreen(
                                 {
                                     scope.launch {
                                         container.downloadRepository.enqueueAll(songs, wifiOnly)
+                                        Toast.makeText(
+                                            ctx,
+                                            "Downloading ${songs.size} song${if (songs.size == 1) "" else "s"}",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
                                 }
                             } else null
@@ -93,11 +103,18 @@ fun AlbumScreen(
                         item { EmptyState("No tracks", "") }
                     } else {
                         itemsIndexed(songs, key = { _, s -> s.id }) { idx, song ->
+                            val controller = LocalPlayerController.current
                             SongRow(
-                                song,
+                                song = song,
                                 onClick = { onPlay(songs, idx) },
                                 showArt = false,
-                                position = idx + 1
+                                position = idx + 1,
+                                actions = rememberSongActions(
+                                    song = song,
+                                    controller = controller,
+                                    onOpenAlbum = null,
+                                    playNow = { onPlay(songs, idx) }
+                                )
                             )
                         }
                     }

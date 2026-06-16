@@ -1,7 +1,9 @@
 package ie.adrianszydlo.navitunes.ui.common
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,12 +16,25 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Album
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Favorite
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.QueuePlayNext
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,6 +87,7 @@ fun AlbumCard(album: Album, onClick: () -> Unit, modifier: Modifier = Modifier) 
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SongRow(
     song: Song,
@@ -80,12 +96,21 @@ fun SongRow(
     showArt: Boolean = true,
     position: Int? = null,
     isPlaying: Boolean = false,
-    onMore: (() -> Unit)? = null
+    actions: SongActions? = null
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val hasMenu = actions?.let {
+        it.onPlayNext != null || it.onAddToQueue != null || it.onDownload != null ||
+            it.onFavorite != null || it.onOpenAlbum != null || it.onRemoveDownload != null
+    } == true
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = if (hasMenu) { { menuOpen = true } } else null
+            )
             .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -138,10 +163,85 @@ fun SongRow(
             style = MaterialTheme.typography.labelMedium,
             color = Text3
         )
-        if (onMore != null) {
-            IconButton(onClick = onMore) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = Text3)
+        if (hasMenu) {
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                }
+                SongMenu(
+                    expanded = menuOpen,
+                    onDismiss = { menuOpen = false },
+                    actions = actions,
+                    isFavorited = !song.starred.isNullOrBlank()
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun SongMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    actions: SongActions,
+    isFavorited: Boolean
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        actions.onPlay?.let {
+            DropdownMenuItem(
+                text = { Text("Play now") },
+                leadingIcon = { Icon(Icons.Outlined.PlayArrow, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onPlayNext?.let {
+            DropdownMenuItem(
+                text = { Text("Play next") },
+                leadingIcon = { Icon(Icons.Outlined.QueuePlayNext, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onAddToQueue?.let {
+            DropdownMenuItem(
+                text = { Text("Add to queue") },
+                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.PlaylistAdd, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onAddToPlaylist?.let {
+            DropdownMenuItem(
+                text = { Text("Add to playlist…") },
+                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.PlaylistAdd, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onDownload?.let {
+            DropdownMenuItem(
+                text = { Text("Download") },
+                leadingIcon = { Icon(Icons.Outlined.Download, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onRemoveDownload?.let {
+            DropdownMenuItem(
+                text = { Text("Remove download") },
+                leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onFavorite?.let {
+            DropdownMenuItem(
+                text = { Text(if (isFavorited) "Remove favorite" else "Add to favorites") },
+                leadingIcon = { Icon(Icons.Outlined.Favorite, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onOpenAlbum?.let {
+            DropdownMenuItem(
+                text = { Text("Go to album") },
+                leadingIcon = { Icon(Icons.Outlined.Album, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
         }
     }
 }

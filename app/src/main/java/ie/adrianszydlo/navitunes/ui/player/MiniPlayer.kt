@@ -59,6 +59,10 @@ fun MiniPlayer(
             .background(SurfaceElev)
             .border(1.dp, BorderCol, RoundedCornerShape(14.dp))
             .clickable(onClick = onExpand)
+            .swipeToSkip(
+                onSwipeLeft = { controller.next() },
+                onSwipeRight = { controller.prev() }
+            )
             .padding(8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

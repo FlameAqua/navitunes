@@ -1,5 +1,6 @@
 package ie.adrianszydlo.navitunes.ui.downloads
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,7 +14,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,7 +26,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
+import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.data.offline.DownloadEntity
 import ie.adrianszydlo.navitunes.data.offline.DownloadRepository
 import ie.adrianszydlo.navitunes.ui.common.EmptyState
@@ -49,7 +50,10 @@ import ie.adrianszydlo.navitunes.ui.theme.Text3
 import kotlinx.coroutines.launch
 
 @Composable
-fun DownloadsScreen(onBack: () -> Unit) {
+fun DownloadsScreen(
+    onBack: () -> Unit,
+    onPlay: (List<Song>, Int) -> Unit
+) {
     val container = NavitunesApp.container()
     val downloads by container.downloadRepository.observeForActiveProfile()
         .collectAsState(initial = emptyList())
@@ -58,6 +62,13 @@ fun DownloadsScreen(onBack: () -> Unit) {
 
     LaunchedEffect(downloads) {
         totalBytes = container.downloadRepository.totalBytesForActiveProfile()
+    }
+
+    // Only completed downloads are playable.
+    val playable = remember(downloads) {
+        downloads
+            .filter { it.status == DownloadRepository.STATUS_COMPLETED }
+            .map { it.toSong() }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -69,7 +80,7 @@ fun DownloadsScreen(onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Outlined.ArrowBack, contentDescription = "Back", tint = Text2)
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Text2)
             }
             Text(
                 "Downloads",
@@ -91,7 +102,7 @@ fun DownloadsScreen(onBack: () -> Unit) {
         if (downloads.isEmpty()) {
             EmptyState(
                 title = "No downloads",
-                body = "Long-press an album or song to download it for offline."
+                body = "Long-press a song, album or playlist to download for offline."
             )
             return@Column
         }
@@ -104,25 +115,35 @@ fun DownloadsScreen(onBack: () -> Unit) {
         )
 
         LazyColumn(
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp).let {
-                PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 200.dp)
-            },
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 200.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             items(downloads, key = { "${it.profileId}-${it.songId}" }) { d ->
-                DownloadRow(entity = d, onRemove = {
-                    scope.launch { container.downloadRepository.removeDownload(d.songId) }
-                })
+                DownloadRow(
+                    entity = d,
+                    onClick = {
+                        if (d.status == DownloadRepository.STATUS_COMPLETED) {
+                            // Build playable queue from all completed downloads; start at this one.
+                            val idx = playable.indexOfFirst { it.id == d.songId }.coerceAtLeast(0)
+                            onPlay(playable, idx)
+                        }
+                    },
+                    onRemove = {
+                        scope.launch { container.downloadRepository.removeDownload(d.songId) }
+                    }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun DownloadRow(entity: DownloadEntity, onRemove: () -> Unit) {
+private fun DownloadRow(entity: DownloadEntity, onClick: () -> Unit, onRemove: () -> Unit) {
+    val isCompleted = entity.status == DownloadRepository.STATUS_COMPLETED
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(enabled = isCompleted, onClick = onClick)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -176,3 +197,12 @@ private fun statusColor(status: String) = when (status) {
     DownloadRepository.STATUS_DOWNLOADING -> Accent
     else -> Text3
 }
+
+private fun DownloadEntity.toSong(): Song = Song(
+    id = songId,
+    title = title,
+    artist = artist,
+    album = album,
+    coverArt = coverArt,
+    duration = duration
+)

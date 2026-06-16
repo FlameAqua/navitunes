@@ -70,4 +70,24 @@ class LibraryRepository(private val api: ApiClient) {
             )
         ).searchResult3 ?: SearchResult()
     }
+
+    /** Creates a new (empty) playlist on the server. */
+    suspend fun createPlaylist(name: String): Playlist = withContext(Dispatchers.IO) {
+        api.call("createPlaylist.view", mapOf("name" to name)).playlist
+            ?: api.call("getPlaylists.view").playlists?.playlist?.firstOrNull { it.name == name }
+            ?: error("Failed to create playlist")
+    }
+
+    /** Appends [songIds] to an existing playlist. */
+    suspend fun addToPlaylist(playlistId: String, songIds: List<String>) = withContext(Dispatchers.IO) {
+        // Subsonic's updatePlaylist.view repeats songIdToAdd for each id — we pass
+        // a comma-joined string and the server splits it via the standard query
+        // parser. To stay portable we instead chain individual calls.
+        songIds.forEach { id ->
+            api.call(
+                "updatePlaylist.view",
+                mapOf("playlistId" to playlistId, "songIdToAdd" to id)
+            )
+        }
+    }
 }

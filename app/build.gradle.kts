@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
@@ -17,14 +16,14 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "ie.adrianszydlo.navitunes"
-    compileSdk = 34
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "ie.adrianszydlo.navitunes"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 37
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -59,7 +58,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
 
     buildFeatures {
         compose = true

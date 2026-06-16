@@ -1,14 +1,14 @@
 package ie.adrianszydlo.navitunes
 
 import android.content.Context
-import androidx.work.Configuration
-import androidx.work.WorkManager
 import ie.adrianszydlo.navitunes.data.api.ApiClient
 import ie.adrianszydlo.navitunes.data.auth.ProfileStore
 import ie.adrianszydlo.navitunes.data.offline.DownloadDb
 import ie.adrianszydlo.navitunes.data.offline.DownloadRepository
 import ie.adrianszydlo.navitunes.data.offline.OfflineResolver
 import ie.adrianszydlo.navitunes.data.prefs.AppPreferences
+import ie.adrianszydlo.navitunes.data.prefs.RecentlyPlayedStore
+import ie.adrianszydlo.navitunes.data.upload.UploadService
 import ie.adrianszydlo.navitunes.data.repo.LibraryRepository
 import ie.adrianszydlo.navitunes.data.repo.PlaybackRepository
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +24,7 @@ class AppContainer(private val appContext: Context) {
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val preferences: AppPreferences by lazy { AppPreferences(appContext) }
+    val recentlyPlayedStore: RecentlyPlayedStore by lazy { RecentlyPlayedStore(appContext) }
     val profileStore: ProfileStore by lazy { ProfileStore(appContext) }
 
     val apiClient: ApiClient by lazy { ApiClient(profileStore) }
@@ -36,12 +37,7 @@ class AppContainer(private val appContext: Context) {
     }
     val offlineResolver: OfflineResolver by lazy { OfflineResolver(downloadRepository) }
 
-    init {
-        WorkManager.initialize(
-            appContext,
-            Configuration.Builder().setMinimumLoggingLevel(android.util.Log.INFO).build()
-        )
-    }
+    val uploadService: UploadService by lazy { UploadService(appContext, apiClient) }
 
     /** Invoked when the active profile changes — flushes any per-profile cache. */
     fun onProfileSwitched() {

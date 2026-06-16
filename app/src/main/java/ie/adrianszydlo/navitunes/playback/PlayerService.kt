@@ -2,10 +2,13 @@ package ie.adrianszydlo.navitunes.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -26,6 +29,7 @@ class PlayerService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var listener: ExoPlayerListener? = null
 
+    @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
         val container = NavitunesApp.container()
@@ -33,8 +37,13 @@ class PlayerService : MediaSessionService() {
         val httpDataSource = OkHttpDataSource.Factory(container.apiClient.okHttp)
             .setUserAgent("Navitunes/1.0")
 
+        // DefaultDataSource fans out per-scheme: HTTP/S goes to OkHttp,
+        // file:// goes to FileDataSource, content:// goes to ContentDataSource.
+        // Without this, offline file URIs can't be opened and tracks read 0 bytes.
+        val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSource)
+
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(httpDataSource)
+            .setDataSourceFactory(dataSourceFactory)
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)

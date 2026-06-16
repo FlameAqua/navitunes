@@ -11,7 +11,6 @@ import ie.adrianszydlo.navitunes.data.api.ApiClient
 import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.data.auth.ProfileStore
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import java.io.File
 
@@ -26,16 +25,9 @@ class DownloadRepository(
     private val profileStore: ProfileStore
 ) {
 
-    val activeProfileEvents = MutableStateFlow(profileStore.activeId.value)
-
     fun observeForActiveProfile(): Flow<List<DownloadEntity>> {
         val id = profileStore.activeId.value ?: return emptyFlow()
         return db.dao().observe(id)
-    }
-
-    suspend fun isDownloaded(songId: String): Boolean {
-        val pid = profileStore.activeId.value ?: return false
-        return db.dao().bySongId(songId, pid)?.status == STATUS_COMPLETED
     }
 
     suspend fun fileUriForSongOrNull(songId: String): String? {
@@ -43,7 +35,10 @@ class DownloadRepository(
         val row = db.dao().bySongId(songId, pid) ?: return null
         if (row.status != STATUS_COMPLETED) return null
         val file = File(row.filePath)
-        return if (file.exists()) file.toURI().toString() else null
+        if (!file.exists() || file.length() == 0L) return null
+        // android.net.Uri.fromFile produces "file:///abs/path" — three slashes —
+        // which ExoPlayer's DefaultDataSource resolves to FileDataSource.
+        return android.net.Uri.fromFile(file).toString()
     }
 
     suspend fun enqueueSong(song: Song, wifiOnly: Boolean) {

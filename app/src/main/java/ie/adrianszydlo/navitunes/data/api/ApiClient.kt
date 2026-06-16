@@ -1,13 +1,17 @@
 package ie.adrianszydlo.navitunes.data.api
 
-import android.net.Uri
+import androidx.core.net.toUri
 import ie.adrianszydlo.navitunes.data.auth.Profile
 import ie.adrianszydlo.navitunes.data.auth.ProfileStore
 import ie.adrianszydlo.navitunes.data.auth.SubsonicAuth
+import ie.adrianszydlo.navitunes.BuildConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.logging.HttpLoggingInterceptor
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -26,12 +30,20 @@ class ApiClient(private val profileStore: ProfileStore) {
     val json: Json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
 
     val okHttp: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
-            .build()
+        if (BuildConfig.DEBUG) {
+            // Hide query string so the salted token isn't logged — but still see URL, status, headers, body.
+            val logger = HttpLoggingInterceptor { msg ->
+                android.util.Log.d("Navitunes/Http", msg.replace(Regex("([?&])([tp])=[^&\\s]+"), "$1$2=***"))
+            }
+            logger.level = HttpLoggingInterceptor.Level.BASIC
+            builder.addInterceptor(logger)
+        }
+        builder.build()
     }
 
     fun activeProfile(): Profile? = profileStore.active
@@ -44,7 +56,7 @@ class ApiClient(private val profileStore: ProfileStore) {
     fun urlFor(endpoint: String, params: Map<String, String> = emptyMap()): String {
         val profile = requireProfile()
         val base = "${profile.normalizedServer}/rest/${endpoint.removePrefix("/")}"
-        val builder = Uri.parse(base).buildUpon()
+        val builder = base.toUri().buildUpon()
         for ((k, v) in SubsonicAuth.params(profile.username, profile.password)) {
             builder.appendQueryParameter(k, v)
         }
@@ -78,9 +90,9 @@ class ApiClient(private val profileStore: ProfileStore) {
         password: String,
         endpoint: String,
         params: Map<String, String> = emptyMap()
-    ): SubsonicResponse {
+    ): SubsonicResponse = withContext(Dispatchers.IO) {
         val base = "${server.trimEnd('/')}/rest/${endpoint.removePrefix("/")}"
-        val builder = Uri.parse(base).buildUpon()
+        val builder = base.toUri().buildUpon()
         for ((k, v) in SubsonicAuth.params(username, password)) builder.appendQueryParameter(k, v)
         for ((k, v) in params) builder.appendQueryParameter(k, v)
         val url = builder.build().toString().toHttpUrl()
@@ -98,7 +110,7 @@ class ApiClient(private val profileStore: ProfileStore) {
         if (r.status == "failed") {
             throw SubsonicException(r.error?.code ?: -1, r.error?.message ?: "API error")
         }
-        return r
+        r
     }
 
     private fun requireProfile(): Profile =

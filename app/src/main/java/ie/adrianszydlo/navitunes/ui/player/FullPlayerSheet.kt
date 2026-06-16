@@ -1,7 +1,7 @@
 package ie.adrianszydlo.navitunes.ui.player
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,10 +19,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -30,7 +32,6 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Replay10
-import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -51,9 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,10 +62,9 @@ import ie.adrianszydlo.navitunes.playback.PlayerController
 import ie.adrianszydlo.navitunes.ui.common.ArtImage
 import ie.adrianszydlo.navitunes.ui.common.formatDuration
 import ie.adrianszydlo.navitunes.ui.theme.Accent
-import ie.adrianszydlo.navitunes.ui.theme.AccentOn
 import ie.adrianszydlo.navitunes.ui.theme.Bg
 import ie.adrianszydlo.navitunes.ui.theme.Text2
-import ie.adrianszydlo.navitunes.ui.theme.Text3
+import ie.adrianszydlo.navitunes.ui.theme.TextHi
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -109,17 +107,17 @@ private fun FullPlayerContent(controller: PlayerController, onClose: () -> Unit)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Close", tint = Text2)
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Close", tint = TextHi)
             }
             Text(
                 if (showQueue) "Queue" else "Now Playing",
                 style = MaterialTheme.typography.labelMedium,
-                color = Text3,
+                color = TextHi,
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center
             )
             IconButton(onClick = { showQueue = !showQueue }) {
-                Icon(Icons.Filled.QueueMusic, contentDescription = "Queue", tint = Text2)
+                Icon(Icons.Filled.QueueMusic, contentDescription = "Queue", tint = TextHi)
             }
         }
 
@@ -143,20 +141,51 @@ private fun FullPlayerContent(controller: PlayerController, onClose: () -> Unit)
 
         Spacer(Modifier.height(24.dp))
 
-        Box(
-            Modifier
-                .widthIn(max = 320.dp)
+        // Album art flanked by symmetric visualizer bars.
+        Row(
+            modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(14.dp))
-                .align(Alignment.CenterHorizontally)
+                .widthIn(max = 480.dp)
+                .align(Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            ArtImage(
-                coverId = song.coverArt,
-                fallback = song.title,
-                modifier = Modifier.fillMaxSize(),
-                cornerRadius = 14.dp,
-                requestSize = 600
+            VisualizerBars(
+                isPlaying = playing,
+                color = Accent,
+                modifier = Modifier
+                    .width(36.dp)
+                    .height(220.dp)
+                    .padding(end = 6.dp),
+                barCount = 5,
+                mirror = false
+            )
+            Box(
+                Modifier
+                    .weight(1f)
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .swipeToSkip(
+                        onSwipeLeft = { controller.next() },
+                        onSwipeRight = { controller.prev() }
+                    )
+            ) {
+                ArtImage(
+                    coverId = song.coverArt,
+                    fallback = song.title,
+                    modifier = Modifier.fillMaxSize(),
+                    cornerRadius = 14.dp,
+                    requestSize = 600
+                )
+            }
+            VisualizerBars(
+                isPlaying = playing,
+                color = Accent,
+                modifier = Modifier
+                    .width(36.dp)
+                    .height(220.dp)
+                    .padding(start = 6.dp),
+                barCount = 5,
+                mirror = true
             )
         }
 
@@ -165,6 +194,7 @@ private fun FullPlayerContent(controller: PlayerController, onClose: () -> Unit)
         Text(
             song.title,
             style = MaterialTheme.typography.titleLarge,
+            color = TextHi,
             fontStyle = FontStyle.Italic,
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
@@ -181,7 +211,7 @@ private fun FullPlayerContent(controller: PlayerController, onClose: () -> Unit)
             Text(
                 song.album,
                 style = MaterialTheme.typography.bodySmall,
-                color = Text3,
+                color = Text2,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center
             )
@@ -203,10 +233,10 @@ private fun FullPlayerContent(controller: PlayerController, onClose: () -> Unit)
             horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally)
         ) {
             IconButton(onClick = { controller.prev() }, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
+                Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = TextHi)
             }
             IconButton(onClick = { controller.seekRelative(-10_000L) }, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Filled.Replay10, contentDescription = "Back 10s", tint = Text3)
+                Icon(Icons.Filled.Replay10, contentDescription = "Back 10s", tint = TextHi)
             }
             IconButton(
                 onClick = { controller.togglePlay() },
@@ -223,10 +253,10 @@ private fun FullPlayerContent(controller: PlayerController, onClose: () -> Unit)
                 )
             }
             IconButton(onClick = { controller.seekRelative(10_000L) }, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s", tint = Text3)
+                Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s", tint = TextHi)
             }
             IconButton(onClick = { controller.next() }, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Filled.SkipNext, contentDescription = "Next")
+                Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = TextHi)
             }
         }
 
@@ -236,58 +266,93 @@ private fun FullPlayerContent(controller: PlayerController, onClose: () -> Unit)
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(56.dp, Alignment.CenterHorizontally)
         ) {
-            IconButton(onClick = { controller.toggleShuffle() }) {
-                Icon(
-                    Icons.Filled.Shuffle,
-                    contentDescription = "Shuffle",
-                    tint = if (shuffle) Accent else Text3
-                )
-            }
-            IconButton(onClick = {
-                controller.toggleStarOnCurrent(NavitunesApp.container().playbackRepository) {}
-            }) {
-                Icon(
-                    if (starred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = "Favorite",
-                    tint = if (starred) Accent else Text3
-                )
-            }
-            IconButton(onClick = { controller.cycleRepeat() }) {
-                Icon(
-                    if (repeat == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
-                    contentDescription = "Repeat",
-                    tint = if (repeat != Player.REPEAT_MODE_OFF) Accent else Text3
-                )
-            }
+            ToggleControl(
+                icon = Icons.Filled.Shuffle,
+                contentDescription = "Shuffle",
+                active = shuffle,
+                onClick = { controller.toggleShuffle() }
+            )
+            ToggleControl(
+                icon = if (starred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                contentDescription = "Favorite",
+                active = starred,
+                onClick = {
+                    controller.toggleStarOnCurrent(NavitunesApp.container().playbackRepository) {}
+                }
+            )
+            ToggleControl(
+                icon = if (repeat == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                contentDescription = "Repeat",
+                active = repeat != Player.REPEAT_MODE_OFF,
+                onClick = { controller.cycleRepeat() }
+            )
         }
     }
 }
 
+/**
+ * Inactive: bright neutral icon, no fill.
+ * Active: filled accent pill — unambiguous to read at a glance.
+ */
+@Composable
+private fun ToggleControl(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    active: Boolean,
+    onClick: () -> Unit
+) {
+    val bg = if (active) Accent.copy(alpha = 0.18f) else Color.Transparent
+    val border = if (active) Accent else Color.Transparent
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(bg)
+            .border(width = if (active) 1.dp else 0.dp, color = border, shape = CircleShape)
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = if (active) Accent else TextHi
+        )
+    }
+}
+
+/**
+ * The slider's `onValueChange` fires on tap AND on drag.
+ * We capture the value in local state and seek on release — but critically,
+ * we use the captured `dragValue` directly inside `onValueChangeFinished`
+ * (not a derived `pct` reference) so a quick tap registers as the value
+ * the user actually pressed at, not a stale recompose snapshot.
+ */
 @Composable
 private fun SeekRow(position: Long, duration: Long, onSeek: (Long) -> Unit) {
     var dragValue by remember { mutableStateOf<Float?>(null) }
-    val pct = when {
-        dragValue != null -> dragValue!!
-        duration > 0 -> (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-        else -> 0f
-    }
+    val livePct = if (duration > 0) (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
+    val sliderValue = dragValue ?: livePct
+
     Column(Modifier.fillMaxWidth()) {
         Slider(
-            value = pct,
+            value = sliderValue,
             onValueChange = { dragValue = it },
             onValueChangeFinished = {
-                if (duration > 0) onSeek((pct * duration).toLong())
+                val captured = dragValue
                 dragValue = null
+                if (captured != null && duration > 0) {
+                    onSeek((captured * duration).toLong())
+                }
             },
             colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.onBackground,
-                activeTrackColor = MaterialTheme.colorScheme.onBackground,
-                inactiveTrackColor = Text3.copy(alpha = 0.3f)
+                thumbColor = TextHi,
+                activeTrackColor = TextHi,
+                inactiveTrackColor = Text2.copy(alpha = 0.3f)
             ),
             modifier = Modifier.fillMaxWidth()
         )
+
         val displayPositionSec: Int = if (dragValue != null && duration > 0) {
-            (dragValue!! * duration / 1000f).toInt()
+            (sliderValue * duration / 1000f).toInt()
         } else {
             (position / 1000L).toInt()
         }
@@ -298,12 +363,12 @@ private fun SeekRow(position: Long, duration: Long, onSeek: (Long) -> Unit) {
             Text(
                 formatDuration(displayPositionSec),
                 style = MaterialTheme.typography.labelMedium,
-                color = Text3
+                color = Text2
             )
             Text(
                 formatDuration((duration / 1000L).toInt()),
                 style = MaterialTheme.typography.labelMedium,
-                color = Text3
+                color = Text2
             )
         }
     }

@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.ui.theme.Surface
@@ -49,9 +50,19 @@ fun ArtImage(
         contentAlignment = Alignment.Center
     ) {
         if (url != null) {
+            // Stable cache key derived from coverId+size — independent of the
+            // salted query string Subsonic appends to every request. Without
+            // this, each render emits a new URL and Coil treats every cover
+            // as a fresh image, defeating its LRU.
+            val stableKey = "cover:${coverId}:${requestSize}"
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(url)
+                    .memoryCacheKey(stableKey)
+                    .diskCacheKey(stableKey)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .networkCachePolicy(CachePolicy.ENABLED)
                     .crossfade(true)
                     .build(),
                 contentDescription = fallback,

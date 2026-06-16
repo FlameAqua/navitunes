@@ -23,24 +23,35 @@ Based on the [`navitunes_old`](./..) PWA blueprint, rewritten in Kotlin + Jetpac
 
 ### Option A: prebuilt APK from GitHub Releases (recommended)
 
-1. Open this repo's [Releases page](../../releases).
+1. Open this repo's [Releases page](https://github.com/adrianszydlo/navitunes/releases).
 2. Download the latest `app-release.apk`.
 3. On your Android device, enable **Settings → Apps → Special access → Install unknown apps** for your browser or file manager.
 4. Open the downloaded APK and tap **Install**.
 5. Launch Navitunes. Enter your Navidrome URL (e.g. `https://music.adrianszydlo.ie`), username, and password. Tap **Connect**.
 
-> Minimum: Android 8.0 (API 26). Target: Android 14 (API 34).
+> Minimum: Android 8.0 (API 26). Target: Android 15 (API 37).
 
 ### Option B: build from source
 
-You need **JDK 17** and either Android Studio (Jellyfish or newer) or the `gradle` CLI (8.9+).
+You need **JDK 17** and the **Android SDK**. Either:
 
-```bash
-git clone https://github.com/YOUR/navitunes.git
-cd navitunes
+- **Android Studio** (recommended) — install from [developer.android.com/studio](https://developer.android.com/studio). Open the project; Studio prompts you to install the matching SDK (compileSdk 37) on first sync and writes `local.properties` for you. Run **Build → Build APK(s)**.
+- **Command-line tools only** — install JDK 17, then download the [Android command-line tools](https://developer.android.com/studio#command-tools), unzip to `C:\Android\Sdk\cmdline-tools\latest\`, then:
+
+  ```powershell
+  $env:ANDROID_HOME = "C:\Android\Sdk"
+  & "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat" `
+      "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+  ```
+
+Then build:
+
+```powershell
+# Copy local.properties.example -> local.properties and set sdk.dir to your SDK
+Copy-Item local.properties.example local.properties
 # First clone only — initialise the Gradle wrapper jar:
 gradle wrapper --gradle-version 8.9
-./gradlew :app:assembleDebug
+.\gradlew :app:assembleDebug
 ```
 
 The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Drag-and-drop it onto a running emulator, or `adb install` to a connected device.
@@ -133,6 +144,54 @@ app/src/main/java/ie/adrianszydlo/navitunes/
 - Release builds are minified and shrunk via R8 with custom rules for kotlinx-serialization, Retrofit, Media3, and Room.
 
 ---
+
+## Uploading songs to your library
+
+Navidrome — and the Subsonic API in general — has **no upload endpoint**: it scans a filesystem directory for music. To make the in-app "Upload song" button work, you need to stand up a small receiver on your Apache wrapper that takes the multipart POST, drops the file into Navidrome's music directory, and lets Navidrome rescan.
+
+Navitunes sends the file as `multipart/form-data` with field name `file`, plus the standard Subsonic auth params (`u`, `t`, `s`, `v`, `c`, `f`) on the query string — so the receiver can verify the caller without ever seeing a plaintext password.
+
+### Minimal PHP receiver (~25 lines)
+
+Drop this as `/var/www/music.adrianszydlo.ie/upload.php` and protect it behind HTTPS:
+
+```php
+<?php
+// upload.php — Navitunes upload receiver.
+$NAVIDROME_MUSIC = '/var/lib/navidrome/music';
+$ALLOWED_USERS = [
+    'adrian'   => 'YOUR_NAVIDROME_PASSWORD',
+    // add other users you trust to upload
+];
+
+// Verify the Subsonic salted token.
+$u = $_GET['u'] ?? '';
+$t = $_GET['t'] ?? '';
+$s = $_GET['s'] ?? '';
+if (!isset($ALLOWED_USERS[$u]) || md5($ALLOWED_USERS[$u] . $s) !== $t) {
+    http_response_code(401); exit('Unauthorized');
+}
+
+if (!isset($_FILES['file'])) { http_response_code(400); exit('Missing file'); }
+$f = $_FILES['file'];
+
+$name = basename($f['name']);
+if (!preg_match('/\.(mp3|flac|m4a|aac|ogg|opus|wav)$/i', $name)) {
+    http_response_code(415); exit('Unsupported format');
+}
+$dest = $NAVIDROME_MUSIC . '/Uploads/' . $name;
+@mkdir(dirname($dest), 0775, true);
+if (!move_uploaded_file($f['tmp_name'], $dest)) {
+    http_response_code(500); exit('Could not save');
+}
+chmod($dest, 0644);
+echo 'ok';
+```
+
+Then in Navitunes: **Settings → Upload → Set URL** to `https://music.adrianszydlo.ie/upload.php`. Pick an audio file → it gets POSTed to your server, dropped in the `Uploads/` subfolder, and Navitunes also calls `startScan.view` so Navidrome picks up the new track in the next scan cycle.
+
+**Format whitelist (client side):** `mp3 · flac · m4a · aac · ogg · opus · wav`
+**Size cap:** 200 MB per file.
 
 ## Roadmap
 

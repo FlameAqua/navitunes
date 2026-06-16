@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -88,6 +89,7 @@ fun LoginScreen(
                     Text(
                         "Navi",
                         style = MaterialTheme.typography.displayLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
                         fontStyle = FontStyle.Italic
                     )
                     Text(
@@ -255,10 +257,16 @@ private fun normalizeServerUrl(input: String): String? {
     }.getOrNull()
 }
 
-private fun humanError(t: Throwable): String = when (t) {
-    is SubsonicException ->
-        if (t.isAuthError) "Invalid username or password" else (t.message ?: "Login failed")
-    is java.net.UnknownHostException -> "Server not reachable. Check the URL and network."
-    is javax.net.ssl.SSLException -> "TLS error: ${t.message ?: "certificate invalid"}"
-    else -> t.message ?: "Login failed"
+private fun humanError(t: Throwable): String {
+    // Log the full stack to logcat for debugging — search "Navitunes/Login" in Logcat.
+    android.util.Log.e("Navitunes/Login", "Login failed", t)
+    val short = when (t) {
+        is SubsonicException ->
+            if (t.isAuthError) return "Invalid username or password"
+            else "Subsonic error ${t.code}: ${t.message ?: "unknown"}"
+        is java.net.UnknownHostException -> "Server not reachable. Check the URL and network."
+        is javax.net.ssl.SSLException -> "TLS error: ${t.message ?: "certificate invalid"}"
+        else -> "${t.javaClass.simpleName}: ${t.message ?: "no detail"}"
+    }
+    return short
 }

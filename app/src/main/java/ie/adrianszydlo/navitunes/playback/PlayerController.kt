@@ -3,6 +3,7 @@ package ie.adrianszydlo.navitunes.playback
 import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Compose-friendly handle on the MediaSession. Lifecycle: created in the Activity,
@@ -111,6 +113,14 @@ class PlayerController(private val appContext: Context) {
         _starred.value = !song?.starred.isNullOrBlank()
         _currentIndex.value = c.currentMediaItemIndex
         _duration.value = if (c.duration > 0) c.duration else 0L
+
+        if (song != null) {
+            val container = NavitunesApp.container()
+            val profileId = container.profileStore.activeId.value ?: return
+            scope.launch {
+                runCatching { container.recentlyPlayedStore.push(profileId, song) }
+            }
+        }
     }
 
     private fun startTicker() {
@@ -120,7 +130,7 @@ class PlayerController(private val appContext: Context) {
                     _position.value = it.currentPosition
                     if (it.duration > 0) _duration.value = it.duration
                 }
-                delay(500)
+                delay(500.milliseconds)
             }
         }
     }
@@ -133,6 +143,30 @@ class PlayerController(private val appContext: Context) {
         c.setMediaItems(items, safeIndex, 0L)
         c.prepare()
         c.play()
+    }
+
+    /** Insert [song] immediately after the currently playing track. */
+    fun playNext(song: Song) {
+        val c = controller ?: return
+        if (c.mediaItemCount == 0) {
+            play(listOf(song), 0)
+            return
+        }
+        val insertAt = c.currentMediaItemIndex + 1
+        c.addMediaItem(insertAt, song.toMediaItem())
+        _queue.value = _queue.value.toMutableList().also { it.add(insertAt, song) }
+        if (!c.isPlaying) c.play()
+    }
+
+    /** Append [song] to the end of the queue. */
+    fun addToQueue(song: Song) {
+        val c = controller ?: return
+        if (c.mediaItemCount == 0) {
+            play(listOf(song), 0)
+            return
+        }
+        c.addMediaItem(song.toMediaItem())
+        _queue.value = _queue.value + song
     }
 
     fun togglePlay() {
@@ -191,7 +225,8 @@ class PlayerController(private val appContext: Context) {
     private fun Song.toMediaItem(): MediaItem {
         val container = NavitunesApp.container()
         val streamUri = container.offlineResolver.uriFor(this)
-            ?: container.apiClient.streamUrl(id)
+            ?.toUri()
+            ?: container.apiClient.streamUrl(id).toUri()
         val artworkUri = container.apiClient.coverUrl(coverArt, 512)
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
@@ -199,7 +234,7 @@ class PlayerController(private val appContext: Context) {
             .setAlbumTitle(album)
             .apply {
                 if (artworkUri != null) {
-                    setArtworkUri(android.net.Uri.parse(artworkUri))
+                    setArtworkUri(artworkUri.toUri())
                 }
             }
             .setExtras(Bundle().apply { putString("songId", id) })

@@ -47,9 +47,10 @@ import ie.adrianszydlo.navitunes.ui.common.PlaylistRow
 import ie.adrianszydlo.navitunes.ui.common.ScreenTopBar
 import ie.adrianszydlo.navitunes.ui.common.SectionHead
 import ie.adrianszydlo.navitunes.ui.common.SongRow
+import ie.adrianszydlo.navitunes.ui.common.rememberSongActions
+import ie.adrianszydlo.navitunes.ui.nav.LocalPlayerController
 import ie.adrianszydlo.navitunes.ui.theme.Accent
 import ie.adrianszydlo.navitunes.ui.theme.AccentOn
-import ie.adrianszydlo.navitunes.ui.theme.BorderCol
 import ie.adrianszydlo.navitunes.ui.theme.Surface
 import ie.adrianszydlo.navitunes.ui.theme.Text2
 import kotlinx.coroutines.launch
@@ -193,6 +194,7 @@ private fun FavoritesView(
     onAlbum: (String) -> Unit,
     onPlay: (List<Song>, Int) -> Unit
 ) {
+    val controller = LocalPlayerController.current
     if (starred.album.isEmpty() && starred.song.isEmpty()) {
         EmptyState("No favorites yet", "Tap the heart on songs to favorite them.")
         return
@@ -221,7 +223,16 @@ private fun FavoritesView(
                     key = "song-${song.id}",
                     span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }
                 ) {
-                    SongRow(song, onClick = { onPlay(starred.song, idx) })
+                    SongRow(
+                        song = song,
+                        onClick = { onPlay(starred.song, idx) },
+                        actions = rememberSongActions(
+                            song = song,
+                            controller = controller,
+                            onOpenAlbum = onAlbum,
+                            playNow = { onPlay(starred.song, idx) }
+                        )
+                    )
                 }
             }
         }

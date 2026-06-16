@@ -25,11 +25,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -37,6 +39,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import ie.adrianszydlo.navitunes.NavitunesApp
+import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.playback.PlayerController
 import ie.adrianszydlo.navitunes.ui.detail.AlbumScreen
 import ie.adrianszydlo.navitunes.ui.detail.ArtistScreen
@@ -104,6 +107,21 @@ fun RootNav() {
 
 @Composable
 private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
+    var songForPlaylist by remember { mutableStateOf<Song?>(null) }
+    val openPicker: (Song) -> Unit = remember { { song -> songForPlaylist = song } }
+    CompositionLocalProvider(
+        LocalPlayerController provides controller,
+        LocalAddToPlaylistRequest provides openPicker
+    ) {
+        MainShellInner(controller = controller, onAddProfile = onAddProfile)
+        songForPlaylist?.let { song ->
+            AddToPlaylistDialog(song = song, onDismiss = { songForPlaylist = null })
+        }
+    }
+}
+
+@Composable
+private fun MainShellInner(controller: PlayerController, onAddProfile: () -> Unit) {
     val nav = rememberNavController()
     val backEntry by nav.currentBackStackEntryAsState()
     val currentRoute = backEntry?.destination?.route
@@ -116,12 +134,15 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
             BottomBar(
                 currentRoute = currentRoute,
                 onSelect = { route ->
-                    if (currentRoute != route) {
-                        nav.navigate(route) {
-                            popUpTo(Routes.HOME) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+                    nav.navigate(route) {
+                        // Pop everything back down to (but not including) the start
+                        // destination so detail screens (album/artist/playlist/
+                        // downloads) are dropped when a tab is tapped.
+                        popUpTo(nav.graph.findStartDestination().id) {
+                            saveState = false
                         }
+                        launchSingleTop = true
+                        restoreState = false
                     }
                 }
             )
@@ -136,7 +157,8 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
                 composable(Routes.HOME) {
                     HomeScreen(
                         onAlbum = { nav.navigate(Routes.album(it)) },
-                        onPlay = { songs, idx -> controller.play(songs, idx) }
+                        onPlay = { songs, idx -> controller.play(songs, idx) },
+                        onPlaylist = { nav.navigate(Routes.playlist(it)) }
                     )
                 }
                 composable(Routes.LIBRARY) {
@@ -151,6 +173,7 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
                     SearchScreen(
                         onAlbum = { nav.navigate(Routes.album(it)) },
                         onArtist = { nav.navigate(Routes.artist(it)) },
+                        onPlaylist = { nav.navigate(Routes.playlist(it)) },
                         onPlay = { songs, idx -> controller.play(songs, idx) }
                     )
                 }
@@ -160,7 +183,12 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
                         onOpenDownloads = { nav.navigate(Routes.DOWNLOADS) }
                     )
                 }
-                composable(Routes.DOWNLOADS) { DownloadsScreen(onBack = { nav.popBackStack() }) }
+                composable(Routes.DOWNLOADS) {
+                    DownloadsScreen(
+                        onBack = { nav.popBackStack() },
+                        onPlay = { songs, idx -> controller.play(songs, idx) }
+                    )
+                }
                 composable(
                     Routes.ALBUM,
                     arguments = listOf(navArgument("id") { type = NavType.StringType })

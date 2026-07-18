@@ -81,7 +81,7 @@ jobs:
 
       # Fail the build if the SBOM contains known high/critical vulnerabilities.
       - name: Scan SBOM for vulnerabilities (Grype)
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         with:
           sbom: navitunes-sbom.cyclonedx.json
           fail-build: true
@@ -107,6 +107,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Review dependency changes
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: high

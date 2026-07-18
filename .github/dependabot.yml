@@ -1,19 +1,28 @@
 version: 2
 updates:
-  # Gradle dependencies (version catalog + build scripts).
+  # Gradle dependencies (version catalog + build scripts), grouped to keep the
+  # PR count low — related bumps land together instead of one PR each.
   - package-ecosystem: "gradle"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     groups:
       androidx:
         patterns: ["androidx.*"]
-      kotlin-coroutines:
+      kotlin:
         patterns: ["org.jetbrains.kotlin*", "org.jetbrains.kotlinx*"]
+      build-tools:
+        patterns: ["com.android.*", "com.google.devtools.ksp*"]
+      other:
+        patterns: ["*"]
 
-  # Keep the GitHub Actions in our workflows current.
+  # All GitHub Actions bumps collapse into a single weekly PR.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]

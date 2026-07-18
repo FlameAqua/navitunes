@@ -54,6 +54,20 @@
             </intent-filter>
         </activity>
 
+        <!-- NavitunesApp implements Configuration.Provider (on-demand WorkManager
+             init), so strip the default WorkManager auto-initializer from the
+             startup provider — otherwise WorkManager double-initializes and
+             ignores the custom configuration. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                tools:node="remove" />
+        </provider>
+
         <!-- Serves downloaded update APKs to the system package installer. -->
         <provider
             android:name="androidx.core.content.FileProvider"

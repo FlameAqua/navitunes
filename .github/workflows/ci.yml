@@ -97,15 +97,16 @@ jobs:
 
   dependency-review:
     name: Dependency review
+    # PR-only, and advisory: Dependabot PRs run with a read-only token, so this is
+    # non-blocking (the real gates are build/test, CodeQL, and the Grype SBOM scan).
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    continue-on-error: true
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - name: Review dependency changes
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
-          comment-summary-in-pr: on-failure

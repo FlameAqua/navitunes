@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Navitunes</string>
+    <!-- app_name is provided per-build-type via resValue in build.gradle.kts
+         (release: "Navitunes", debug: "Navitunes Dev"). -->
     <string name="app_tagline">Your library, anywhere</string>
 
     <!-- Tabs -->

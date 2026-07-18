@@ -75,7 +75,11 @@ class ApiClient(private val profileStore: ProfileStore) {
     fun downloadUrl(songId: String): String =
         urlFor("download.view", mapOf("id" to songId))
 
-    suspend fun call(endpoint: String, params: Map<String, String> = emptyMap()): SubsonicResponse {
+    suspend fun call(endpoint: String, params: Map<String, String> = emptyMap()): SubsonicResponse =
+        call(endpoint, params.toList())
+
+    /** Variant accepting repeated keys (e.g. multiple `songId` params). */
+    suspend fun call(endpoint: String, params: List<Pair<String, String>>): SubsonicResponse {
         val profile = requireProfile()
         return callWith(profile.normalizedServer, profile.username, profile.password, endpoint, params)
     }
@@ -90,6 +94,14 @@ class ApiClient(private val profileStore: ProfileStore) {
         password: String,
         endpoint: String,
         params: Map<String, String> = emptyMap()
+    ): SubsonicResponse = callWith(server, username, password, endpoint, params.toList())
+
+    suspend fun callWith(
+        server: String,
+        username: String,
+        password: String,
+        endpoint: String,
+        params: List<Pair<String, String>>
     ): SubsonicResponse = withContext(Dispatchers.IO) {
         val base = "${server.trimEnd('/')}/rest/${endpoint.removePrefix("/")}"
         val builder = base.toUri().buildUpon()

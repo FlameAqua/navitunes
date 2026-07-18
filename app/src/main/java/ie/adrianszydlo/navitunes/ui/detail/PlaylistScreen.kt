@@ -3,15 +3,22 @@ package ie.adrianszydlo.navitunes.ui.detail
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -35,7 +42,9 @@ import ie.adrianszydlo.navitunes.ui.common.SongRow
 import ie.adrianszydlo.navitunes.ui.common.formatDuration
 import ie.adrianszydlo.navitunes.ui.common.rememberSongActions
 import ie.adrianszydlo.navitunes.ui.nav.LocalPlayerController
+import ie.adrianszydlo.navitunes.ui.theme.Accent
 import ie.adrianszydlo.navitunes.ui.theme.Danger
+import ie.adrianszydlo.navitunes.ui.theme.Text3
 import kotlinx.coroutines.launch
 
 @Composable
@@ -82,13 +91,17 @@ fun PlaylistScreen(
             playlist != null -> {
                 val p = playlist!!
                 val songs = p.entry
+                // The real, playable tracks are `entry`; `songCount` can be inflated
+                // by "orphans" (songs deleted from the library but still counted by
+                // the server). Show and act on the real list.
+                val orphanCount = (p.songCount - songs.size).coerceAtLeast(0)
                 LazyColumn(contentPadding = PaddingValues(bottom = 200.dp)) {
                     item {
                         DetailHeader(
                             tag = "Playlist",
                             title = p.name,
                             subtitle = p.comment,
-                            meta = "${p.songCount.takeIf { it > 0 } ?: songs.size} songs · ${formatDuration(p.duration)}",
+                            meta = "${songs.size} song${if (songs.size == 1) "" else "s"} · ${formatDuration(songs.sumOf { it.duration })}",
                             coverArt = p.coverArt,
                             onBack = onBack,
                             trailing = {
@@ -97,6 +110,29 @@ fun PlaylistScreen(
                                 }
                             }
                         )
+                    }
+                    if (orphanCount > 0) {
+                        item {
+                            OrphanBanner(
+                                count = orphanCount,
+                                onCleanUp = {
+                                    scope.launch {
+                                        runCatching {
+                                            if (songs.isEmpty()) repo.clearPlaylist(id, p.songCount)
+                                            else repo.setPlaylistSongs(id, songs.map { it.id })
+                                        }
+                                            .onSuccess {
+                                                container.librarySignals.notifyChanged()
+                                                Toast.makeText(ctx, "Cleaned up", Toast.LENGTH_SHORT).show()
+                                                reloadTick++
+                                            }
+                                            .onFailure {
+                                                Toast.makeText(ctx, "Couldn't clean up: ${it.message}", Toast.LENGTH_LONG).show()
+                                            }
+                                    }
+                                }
+                            )
+                        }
                     }
                     item {
                         DetailActions(
@@ -153,8 +189,18 @@ fun PlaylistScreen(
             confirmLabel = "Remove",
             destructive = true,
             onConfirm = {
+                indexToRemove = null // close the dialog immediately; index already captured
                 scope.launch {
-                    runCatching { repo.removeFromPlaylist(id, indexBeingRemoved) }
+                    // Rewrite the playlist to its real entries minus the chosen one.
+                    // Emptying (removing the last song) needs the index-based path.
+                    val current = playlist!!
+                    val keep = current.entry
+                        .filterIndexed { i, _ -> i != indexBeingRemoved }
+                        .map { it.id }
+                    runCatching {
+                        if (keep.isEmpty()) repo.clearPlaylist(id, current.songCount)
+                        else repo.setPlaylistSongs(id, keep)
+                    }
                         .onSuccess {
                             container.librarySignals.notifyChanged()
                             Toast.makeText(ctx, "Removed", Toast.LENGTH_SHORT).show()
@@ -193,5 +239,28 @@ fun PlaylistScreen(
             },
             onDismiss = { showDeletePlaylist = false }
         )
+    }
+}
+
+/**
+ * Shown when a playlist's server count exceeds its real tracks — i.e. some songs
+ * were deleted from the library but still linger as counted "orphans". Cleaning up
+ * rewrites the playlist to only its real tracks.
+ */
+@Composable
+private fun OrphanBanner(count: Int, onCleanUp: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "$count track${if (count == 1) "" else "s"} no longer in your library.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Text3,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onCleanUp) { Text("Clean up", color = Accent) }
     }
 }

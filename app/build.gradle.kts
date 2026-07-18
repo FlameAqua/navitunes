@@ -30,14 +30,19 @@ android {
         // Version is overridable from the release tag via -PversionName / -PversionCode
         // (see .github/workflows/release.yml), so a tag alone drives a release build.
         versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
-        versionName = (project.findProperty("versionName") as String?) ?: "0.4.0"
+        versionName = (project.findProperty("versionName") as String?) ?: "0.4.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 
         // GitHub "owner/repo" the in-app updater queries for new releases.
         // Override via -PgithubRepo=... if you fork under a different slug.
-        val githubRepo = (project.findProperty("githubRepo") as String?) ?: "adrianszydlo/navitunes"
+        val githubRepo = (project.findProperty("githubRepo") as String?) ?: "FlameAqua/navitunes"
         buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
+
+        // App name comes from a generated resource so debug builds can carry a
+        // distinct label (and package suffix) — installable side-by-side with a
+        // release build without confusion.
+        resValue("string", "app_name", "Navitunes")
     }
 
     signingConfigs {
@@ -54,7 +59,11 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+            versionNameSuffix = "-dev"
             isDebuggable = true
+            // Distinct label so the dev build is obvious on the phone and installs
+            // alongside a release build (which uses the base applicationId).
+            resValue("string", "app_name", "Navitunes Dev")
         }
         release {
             isMinifyEnabled = true
@@ -74,6 +83,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
 
     packaging {

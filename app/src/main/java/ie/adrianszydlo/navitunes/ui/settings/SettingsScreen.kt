@@ -498,7 +498,7 @@ fun SettingsScreen(
                     "${ie.adrianszydlo.navitunes.BuildConfig.VERSION_NAME} (${ie.adrianszydlo.navitunes.BuildConfig.VERSION_CODE})"
                 )
                 StaticRow("Build", "Navitunes Android")
-                StaticRow("Source", "github.com/adrianszydlo/navitunes")
+                StaticRow("Source", "github.com/${ie.adrianszydlo.navitunes.BuildConfig.GITHUB_REPO}")
             }
             Spacer(Modifier.height(48.dp))
         }

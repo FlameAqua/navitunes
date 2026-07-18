@@ -198,7 +198,12 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
                 confirmLabel = "Remove",
                 destructive = true,
                 onConfirm = {
+                    songForRemoval = null
                     scope.launch {
+                        // Drop the song from any playlist *before* deleting it — once the
+                        // media is gone Navidrome keeps a hidden playlist membership that
+                        // can't be removed afterwards (and re-downloading revives it).
+                        runCatching { container.libraryRepository.removeSongFromAllPlaylists(song.id) }
                         // Blank endpoint → UploadService falls back to the profile's server.
                         val result = container.uploadService.removeFromLibrary(song.id, uploadEndpoint.orEmpty())
                         when (result) {

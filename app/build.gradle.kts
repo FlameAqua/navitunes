@@ -16,16 +16,28 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "ie.adrianszydlo.navitunes"
-    compileSdk = 35
+    // compileSdk is dictated by the AndroidX/Media3 deps (they require 37).
+    // It only governs which APIs we can compile against — not runtime behavior.
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "ie.adrianszydlo.navitunes"
         minSdk = 26
+        // targetSdk stays at 35 deliberately: it's the runtime-behavior opt-in,
+        // and 35 is a well-understood baseline. Bump it separately and test when
+        // you're ready to adopt newer platform behaviors.
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.3.0"
+        // Version is overridable from the release tag via -PversionName / -PversionCode
+        // (see .github/workflows/release.yml), so a tag alone drives a release build.
+        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("versionName") as String?) ?: "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+
+        // GitHub "owner/repo" the in-app updater queries for new releases.
+        // Override via -PgithubRepo=... if you fork under a different slug.
+        val githubRepo = (project.findProperty("githubRepo") as String?) ?: "adrianszydlo/navitunes"
+        buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
     }
 
     signingConfigs {

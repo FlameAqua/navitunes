@@ -25,7 +25,8 @@ data class SubsonicResponse(
     val playlists: PlaylistsWrapper? = null,
     val playlist: Playlist? = null,
     val starred2: Starred? = null,
-    val searchResult3: SearchResult? = null
+    val searchResult3: SearchResult? = null,
+    val song: Song? = null
 )
 
 @Serializable
@@ -116,5 +117,9 @@ data class Song(
     val suffix: String? = null,
     val starred: String? = null,
     val isVideo: Boolean? = null,
-    val size: Long? = null
+    val size: Long? = null,
+    val discNumber: Int? = null,
+    val path: String? = null,
+    val musicBrainzId: String? = null,
+    val playCount: Int? = null
 )

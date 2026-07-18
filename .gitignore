@@ -1,14 +1,36 @@
+# Android Studio / IntelliJ
 *.iml
-.gradle/
-local.properties
 .idea/
-.DS_Store
-build/
 captures/
+
+# Gradle / Kotlin build output
+.gradle/
+.kotlin/
+build/
 .externalNativeBuild/
 .cxx/
-*.apk
-*.aab
+*.hprof
+
+# Local machine config (never commit — see local.properties.example)
+local.properties
+
+# Signing material & secrets — MUST stay out of the repo
 *.keystore
 *.jks
+*.p12
+*.pepk
 release-keystore.properties
+keystore.properties
+
+# Build artifacts / release staging
+*.apk
+*.aab
+/dist/
+
+# Generated SBOMs (produced by CI/local tooling)
+*.sbom.json
+*-sbom.*.json
+
+# OS cruft
+.DS_Store
+Thumbs.db

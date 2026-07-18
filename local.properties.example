@@ -12,5 +12,6 @@
 #
 # Linux:
 #   sdk.dir=/home/YOUR_USER/Android/Sdk
-
-sdk.dir=C\:\\Users\\Adrian\\AppData\\Local\\Android\\Sdk
+#
+# Uncomment and set the line below for your machine (do NOT commit local.properties):
+# sdk.dir=C\:\\Users\\YOUR_USER\\AppData\\Local\\Android\\Sdk

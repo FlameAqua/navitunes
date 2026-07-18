@@ -46,12 +46,8 @@ class DownloadWorker(
                 return@withContext Result.retry()
             }
 
-            val body = response.body ?: run {
-                dao.updateStatus(songId, profileId, DownloadRepository.STATUS_FAILED, "Empty body")
-                return@withContext Result.failure()
-            }
-
-            body.use { rb ->
+            // OkHttp 5 guarantees a non-null body on a successful response.
+            response.body.use { rb ->
                 rb.byteStream().use { input ->
                     tmp.outputStream().use { output ->
                         input.copyTo(output, 64 * 1024)
@@ -67,12 +63,16 @@ class DownloadWorker(
 
             val size = target.length()
             val row = dao.bySongId(songId, profileId)
-            if (row != null) {
-                dao.upsert(row.copy(
-                    sizeBytes = size,
-                    status = DownloadRepository.STATUS_COMPLETED,
-                    errorMessage = null
-                ))
+            val completed = row?.copy(
+                sizeBytes = size,
+                status = DownloadRepository.STATUS_COMPLETED,
+                errorMessage = null
+            )
+            if (completed != null) {
+                dao.upsert(completed)
+                // Drop a metadata sidecar so the index can be rebuilt from disk
+                // after an app wipe (see DownloadRepository.reconcile).
+                container.downloadRepository.writeSidecar(target, completed)
             } else {
                 dao.updateStatus(songId, profileId, DownloadRepository.STATUS_COMPLETED)
             }

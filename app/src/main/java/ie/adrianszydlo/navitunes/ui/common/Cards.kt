@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material.icons.outlined.Favorite
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.PlaylistRemove
 import androidx.compose.material.icons.outlined.QueuePlayNext
@@ -105,8 +106,10 @@ fun SongRow(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val hasMenu = actions?.let {
-        it.onPlayNext != null || it.onAddToQueue != null || it.onDownload != null ||
-            it.onFavorite != null || it.onOpenAlbum != null || it.onRemoveDownload != null
+        it.onPlayNext != null || it.onAddToQueue != null || it.onAddToPlaylist != null ||
+            it.onDownload != null || it.onFavorite != null || it.onOpenAlbum != null ||
+            it.onRemoveDownload != null || it.onRemoveFromPlaylist != null ||
+            it.onRemoveFromLibrary != null || it.onShowInfo != null
     } == true
 
     Row(
@@ -209,6 +212,13 @@ private fun SongMenu(
             DropdownMenuItem(
                 text = { Text("Play now") },
                 leadingIcon = { Icon(Icons.Outlined.PlayArrow, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onShowInfo?.let {
+            DropdownMenuItem(
+                text = { Text("Song info") },
+                leadingIcon = { Icon(Icons.Outlined.Info, contentDescription = null) },
                 onClick = { onDismiss(); it() }
             )
         }

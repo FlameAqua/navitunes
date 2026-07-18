@@ -46,13 +46,18 @@ fun AlbumScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var album by remember { mutableStateOf<Album?>(null) }
 
+    // A different album → show the spinner; a background refresh of the same
+    // album (periodic poll / library signal) updates silently.
+    var loadedId by remember { mutableStateOf<String?>(null) }
     val signalTick by container.librarySignals.refresh.collectAsState()
     LaunchedEffect(id, signalTick) {
-        loading = true; error = null
+        val silent = id == loadedId && album != null
+        loadedId = id
+        if (!silent) { loading = true; error = null }
         try {
             album = repo.album(id)
         } catch (t: Throwable) {
-            error = t.message ?: "Unknown error"
+            if (!silent) error = t.message ?: "Unknown error"
         } finally {
             loading = false
         }
@@ -87,13 +92,17 @@ fun AlbumScreen(
                             },
                             onDownload = if (songs.isNotEmpty()) {
                                 {
-                                    scope.launch {
-                                        container.downloadRepository.enqueueAll(songs, wifiOnly)
-                                        Toast.makeText(
-                                            ctx,
-                                            "Downloading ${songs.size} song${if (songs.size == 1) "" else "s"}",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
+                                    if (!container.downloadRepository.hasStorageAccess()) {
+                                        Toast.makeText(ctx, "Grant storage access in Settings → Downloads first.", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        scope.launch {
+                                            container.downloadRepository.enqueueAll(songs, wifiOnly)
+                                            Toast.makeText(
+                                                ctx,
+                                                "Downloading ${songs.size} song${if (songs.size == 1) "" else "s"}",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
                                     }
                                 }
                             } else null

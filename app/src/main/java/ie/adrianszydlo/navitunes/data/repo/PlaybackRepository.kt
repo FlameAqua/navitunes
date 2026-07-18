@@ -1,14 +1,12 @@
 package ie.adrianszydlo.navitunes.data.repo
 
 import ie.adrianszydlo.navitunes.data.api.ApiClient
-import ie.adrianszydlo.navitunes.data.prefs.AppPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** Subsonic write/side-effect endpoints: scrobble + star/unstar. */
 class PlaybackRepository(
-    private val api: ApiClient,
-    @Suppress("unused") private val preferences: AppPreferences
+    private val api: ApiClient
 ) {
 
     suspend fun scrobble(songId: String, submission: Boolean) = withContext(Dispatchers.IO) {

@@ -70,21 +70,28 @@ fun LibraryScreen(
     var state by remember { mutableStateOf<TabState>(TabState.Loading) }
     val scope = rememberCoroutineScope()
 
-    fun load(t: LibTab) {
+    fun load(t: LibTab, silent: Boolean) {
         scope.launch {
-            state = TabState.Loading
+            if (!silent) state = TabState.Loading
             val res = when (t) {
                 LibTab.Albums -> runCatching { TabState.Albums(repo.albumList("newest", 200)) }
                 LibTab.Artists -> runCatching { TabState.Artists(repo.allArtists()) }
                 LibTab.Playlists -> runCatching { TabState.Playlists(repo.allPlaylists()) }
                 LibTab.Favorites -> runCatching { TabState.Favorites(repo.starred()) }
             }
-            state = res.getOrElse { TabState.Error(it.message ?: "Unknown error") }
+            // On a silent refresh, keep whatever's on screen if the fetch fails.
+            state = res.getOrElse { if (silent) state else TabState.Error(it.message ?: "Unknown error") }
         }
     }
 
+    // Tab change → show the spinner; a same-tab refresh (poll / signal) → silent.
+    var loadedTab by remember { mutableStateOf<LibTab?>(null) }
     val signalTick by NavitunesApp.container().librarySignals.refresh.collectAsState()
-    LaunchedEffect(tab, signalTick) { load(tab) }
+    LaunchedEffect(tab, signalTick) {
+        val silent = tab == loadedTab
+        loadedTab = tab
+        load(tab, silent)
+    }
 
     Column(Modifier.fillMaxSize()) {
         ScreenTopBar(title = "Library")
@@ -92,7 +99,7 @@ fun LibraryScreen(
 
         when (val s = state) {
             TabState.Loading -> Loading()
-            is TabState.Error -> ErrorState("Could not load library", s.message, onRetry = { load(tab) })
+            is TabState.Error -> ErrorState("Could not load library", s.message, onRetry = { load(tab, silent = false) })
             is TabState.Albums -> AlbumsGrid(s.list, onAlbum)
             is TabState.Artists -> ArtistsList(s.list, onArtist)
             is TabState.Playlists -> PlaylistsList(s.list, onPlaylist)

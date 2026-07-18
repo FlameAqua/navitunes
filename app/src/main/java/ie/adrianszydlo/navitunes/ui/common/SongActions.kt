@@ -17,5 +17,6 @@ data class SongActions(
     val onOpenAlbum: (() -> Unit)? = null,
     val onRemoveDownload: (() -> Unit)? = null,
     val onRemoveFromPlaylist: (() -> Unit)? = null,
-    val onRemoveFromLibrary: (() -> Unit)? = null
+    val onRemoveFromLibrary: (() -> Unit)? = null,
+    val onShowInfo: (() -> Unit)? = null
 )

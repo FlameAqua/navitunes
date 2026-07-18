@@ -68,6 +68,10 @@ class UploadService(
     private fun base(endpoint: String): String =
         endpoint.trimEnd('/').removeSuffix("/upload").removeSuffix("/remove")
 
+    /** Override endpoint if non-blank, otherwise the active profile's server. */
+    private fun effectiveEndpoint(endpoint: String): String? =
+        endpoint.takeIf { it.isNotBlank() } ?: api.activeProfile()?.normalizedServer
+
     private fun uploadUrl(endpoint: String) = "${base(endpoint)}/upload"
     private fun removeUrl(endpoint: String) = "${base(endpoint)}/remove"
 
@@ -83,8 +87,10 @@ class UploadService(
     ): Result = withContext(Dispatchers.IO) {
         val profile = api.activeProfile()
             ?: return@withContext Result.Failure("No active profile")
+        val resolved = effectiveEndpoint(endpoint)
+            ?: return@withContext Result.Failure("No server configured")
 
-        val authedUrl = removeUrl(endpoint).toUri().buildUpon().apply {
+        val authedUrl = removeUrl(resolved).toUri().buildUpon().apply {
             for ((k, v) in SubsonicAuth.params(profile.username, profile.password)) {
                 appendQueryParameter(k, v)
             }
@@ -186,7 +192,9 @@ class UploadService(
             .build()
 
         // Append Subsonic auth params so the receiver can verify.
-        val url = buildAuthedUrl(uploadUrl(endpoint), profile.username, profile.password)
+        val resolved = effectiveEndpoint(endpoint)
+            ?: return@withContext Result.Failure("No server configured")
+        val url = buildAuthedUrl(uploadUrl(resolved), profile.username, profile.password)
         val request = Request.Builder().url(url).post(multipart).build()
 
         return@withContext try {

@@ -30,7 +30,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -45,6 +49,7 @@ import ie.adrianszydlo.navitunes.playback.PlayerController
 import ie.adrianszydlo.navitunes.ui.detail.AlbumScreen
 import ie.adrianszydlo.navitunes.ui.detail.ArtistScreen
 import ie.adrianszydlo.navitunes.ui.detail.PlaylistScreen
+import ie.adrianszydlo.navitunes.ui.downloads.DownloadManagerScreen
 import ie.adrianszydlo.navitunes.ui.downloads.DownloadsScreen
 import ie.adrianszydlo.navitunes.ui.home.HomeScreen
 import ie.adrianszydlo.navitunes.ui.library.LibraryScreen
@@ -54,9 +59,15 @@ import ie.adrianszydlo.navitunes.ui.player.MiniPlayer
 import ie.adrianszydlo.navitunes.ui.profile.ProfilePickerScreen
 import ie.adrianszydlo.navitunes.ui.search.SearchScreen
 import ie.adrianszydlo.navitunes.ui.settings.SettingsScreen
+import ie.adrianszydlo.navitunes.data.update.UpdateStatus
+import ie.adrianszydlo.navitunes.ui.update.UpdateAvailableDialog
 import ie.adrianszydlo.navitunes.ui.theme.Accent
+import kotlinx.coroutines.flow.first
 import ie.adrianszydlo.navitunes.ui.theme.BorderCol
 import ie.adrianszydlo.navitunes.ui.theme.Text3
+
+/** How often to silently refresh the visible screen while foregrounded. */
+private const val AUTO_REFRESH_INTERVAL_MS = 10_000L
 
 /**
  * Top-level routing.
@@ -114,28 +125,69 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
 
     var songForPlaylist by remember { mutableStateOf<Song?>(null) }
     var songForRemoval by remember { mutableStateOf<Song?>(null) }
+    var songForInfo by remember { mutableStateOf<Song?>(null) }
     var ambiguousRemoval by remember {
         mutableStateOf<Pair<Song, ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous>?>(null)
     }
+    var updateAvailable by remember { mutableStateOf<UpdateStatus.Available?>(null) }
 
     val openPicker: (Song) -> Unit = remember { { song -> songForPlaylist = song } }
     val openRemove: (Song) -> Unit = remember { { song -> songForRemoval = song } }
+    val openInfo: (Song) -> Unit = remember { { song -> songForInfo = song } }
 
     val downloadedIds by container.downloadRepository
         .observeDownloadedIdsForActiveProfile()
         .collectAsState(initial = emptySet())
     val uploadEndpoint by container.preferences.uploadEndpoint.collectAsState(initial = null)
+    val activeProfileId by container.profileStore.activeId.collectAsState()
+
+    // Rebuild the offline index from disk on launch / profile change, so
+    // downloads in Music/Navitunes survive an app wipe or reinstall.
+    LaunchedEffect(activeProfileId) {
+        container.downloadRepository.reconcile()
+        container.librarySignals.notifyChanged()
+    }
+
+    // Silent auto-refresh: while the app is in the foreground, tick the
+    // library-changed signal periodically so screens pick up server-side changes
+    // (e.g. a just-finished download) without a manual refresh. Screens swap the
+    // new data in silently — no spinner, no visible reload. Paused when the app
+    // is backgrounded (repeatOnLifecycle), so it never polls needlessly.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(AUTO_REFRESH_INTERVAL_MS)
+                container.librarySignals.notifyChanged()
+            }
+        }
+    }
+
+    // Check GitHub for a newer release once per launch. Respects a version the
+    // user chose to skip; the manual check in Settings ignores that skip.
+    LaunchedEffect(Unit) {
+        val skipped = container.preferences.skippedUpdateVersion.first()
+        val status = container.updateService.check()
+        if (status is UpdateStatus.Available && status.versionName != skipped) {
+            updateAvailable = status
+        }
+    }
 
     CompositionLocalProvider(
         LocalPlayerController provides controller,
         LocalAddToPlaylistRequest provides openPicker,
         LocalRemoveSongRequest provides openRemove,
+        LocalSongInfoRequest provides openInfo,
         LocalDownloadedIds provides downloadedIds
     ) {
         MainShellInner(controller = controller, onAddProfile = onAddProfile)
 
         songForPlaylist?.let { song ->
             AddToPlaylistDialog(song = song, onDismiss = { songForPlaylist = null })
+        }
+
+        songForInfo?.let { song ->
+            SongInfoDialog(song = song, onDismiss = { songForInfo = null })
         }
 
         songForRemoval?.let { song ->
@@ -146,25 +198,18 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
                 confirmLabel = "Remove",
                 destructive = true,
                 onConfirm = {
-                    val endpoint = uploadEndpoint
-                    if (endpoint.isNullOrBlank()) {
-                        android.widget.Toast.makeText(
-                            ctx, "Set an upload URL in Settings first.",
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    } else {
-                        scope.launch {
-                            val result = container.uploadService.removeFromLibrary(song.id, endpoint)
-                            when (result) {
-                                is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Success -> {
-                                    onSongRemoved(container, controller, song)
-                                    android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
-                                }
-                                is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Failure ->
-                                    android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
-                                is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous ->
-                                    ambiguousRemoval = song to result
+                    scope.launch {
+                        // Blank endpoint → UploadService falls back to the profile's server.
+                        val result = container.uploadService.removeFromLibrary(song.id, uploadEndpoint.orEmpty())
+                        when (result) {
+                            is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Success -> {
+                                onSongRemoved(container, controller, song)
+                                android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
                             }
+                            is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Failure ->
+                                android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
+                            is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous ->
+                                ambiguousRemoval = song to result
                         }
                     }
                 },
@@ -177,11 +222,10 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
                 songTitle = song.title,
                 candidates = ambig.candidates,
                 onPick = { picked ->
-                    val endpoint = uploadEndpoint ?: return@RemoveCandidatePicker
                     scope.launch {
                         val result = container.uploadService.removeFromLibrary(
                             songId = song.id,
-                            endpoint = endpoint,
+                            endpoint = uploadEndpoint.orEmpty(),
                             explicitPath = picked.relative
                         )
                         when (result) {
@@ -198,6 +242,19 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
                     ambiguousRemoval = null
                 },
                 onDismiss = { ambiguousRemoval = null }
+            )
+        }
+
+        updateAvailable?.let { avail ->
+            UpdateAvailableDialog(
+                available = avail,
+                onDismiss = { updateAvailable = null },
+                onSkip = {
+                    container.appScope.launch {
+                        container.preferences.setSkippedUpdateVersion(avail.versionName)
+                    }
+                    updateAvailable = null
+                }
             )
         }
     }
@@ -280,7 +337,8 @@ private fun MainShellInner(controller: PlayerController, onAddProfile: () -> Uni
                         onAlbum = { nav.navigate(Routes.album(it)) },
                         onArtist = { nav.navigate(Routes.artist(it)) },
                         onPlaylist = { nav.navigate(Routes.playlist(it)) },
-                        onPlay = { songs, idx -> controller.play(songs, idx) }
+                        onPlay = { songs, idx -> controller.play(songs, idx) },
+                        onOpenDownloadManager = { nav.navigate(Routes.DOWNLOAD_MANAGER) }
                     )
                 }
                 composable(Routes.SETTINGS) {
@@ -294,6 +352,9 @@ private fun MainShellInner(controller: PlayerController, onAddProfile: () -> Uni
                         onBack = { nav.popBackStack() },
                         onPlay = { songs, idx -> controller.play(songs, idx) }
                     )
+                }
+                composable(Routes.DOWNLOAD_MANAGER) {
+                    DownloadManagerScreen(onBack = { nav.popBackStack() })
                 }
                 composable(
                     Routes.ALBUM,

@@ -59,6 +59,11 @@ class LibraryRepository(private val api: ApiClient) {
         api.call("getStarred2.view").starred2 ?: Starred()
     }
 
+    /** Full metadata for one song (getSong.view returns more fields than list endpoints). */
+    suspend fun song(id: String): Song? = withContext(Dispatchers.IO) {
+        runCatching { api.call("getSong.view", mapOf("id" to id)).song }.getOrNull()
+    }
+
     suspend fun search(query: String): SearchResult = withContext(Dispatchers.IO) {
         api.call(
             "search3.view",

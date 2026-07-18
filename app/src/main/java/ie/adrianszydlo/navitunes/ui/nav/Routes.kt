@@ -1,14 +1,12 @@
 package ie.adrianszydlo.navitunes.ui.nav
 
 object Routes {
-    const val LOGIN = "login"
-    const val PROFILES = "profiles"
-
     const val HOME = "home"
     const val LIBRARY = "library"
     const val SEARCH = "search"
     const val SETTINGS = "settings"
     const val DOWNLOADS = "downloads"
+    const val DOWNLOAD_MANAGER = "download_manager"
 
     // Detail
     const val ALBUM = "album/{id}"

@@ -50,7 +50,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.auth.Profile
+import ie.adrianszydlo.navitunes.data.update.UpdateStatus
 import ie.adrianszydlo.navitunes.ui.common.ScreenTopBar
+import ie.adrianszydlo.navitunes.ui.update.UpdateAvailableDialog
 import ie.adrianszydlo.navitunes.ui.theme.Accent
 import ie.adrianszydlo.navitunes.ui.theme.AccentOn
 import ie.adrianszydlo.navitunes.ui.theme.Danger
@@ -70,25 +72,57 @@ fun SettingsScreen(
     val activeId by container.profileStore.activeId.collectAsState()
     val wifiOnly by container.preferences.wifiOnly.collectAsState(initial = false)
     val uploadEndpoint by container.preferences.uploadEndpoint.collectAsState(initial = null)
+    val spotifyId by container.preferences.spotifyClientId.collectAsState(initial = null)
+    val spotifySecret by container.preferences.spotifyClientSecret.collectAsState(initial = null)
+    var editingSpotify by remember { mutableStateOf(false) }
+    var fixingMetadata by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
 
     var pingMessage by remember { mutableStateOf<String?>(null) }
     var profileToRemove by remember { mutableStateOf<Profile?>(null) }
     var editingUploadUrl by remember { mutableStateOf(false) }
     var uploading by remember { mutableStateOf(false) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateResult by remember { mutableStateOf<UpdateStatus.Available?>(null) }
+
+    // Storage access for offline downloads (Music/Navitunes).
+    var storageGranted by remember {
+        mutableStateOf(ie.adrianszydlo.navitunes.data.offline.StoragePermission.hasAccess(ctx))
+    }
+    // Re-check when the user returns from the system All-Files-Access settings screen.
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        storageGranted = ie.adrianszydlo.navitunes.data.offline.StoragePermission.hasAccess(ctx)
+    }
+    val allFilesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        storageGranted = ie.adrianszydlo.navitunes.data.offline.StoragePermission.hasAccess(ctx)
+        if (storageGranted) scope.launch { container.downloadRepository.reconcile() }
+    }
+    val legacyStorageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        storageGranted = granted
+        if (granted) scope.launch { container.downloadRepository.reconcile() }
+    }
+    val requestStorage: () -> Unit = {
+        if (ie.adrianszydlo.navitunes.data.offline.StoragePermission.usesLegacyRuntimePermission) {
+            legacyStorageLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            allFilesLauncher.launch(
+                ie.adrianszydlo.navitunes.data.offline.StoragePermission.allFilesAccessSettingsIntent(ctx)
+            )
+        }
+    }
 
     val pickAudio = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-        val endpoint = uploadEndpoint
         if (uri == null) return@rememberLauncherForActivityResult
-        if (endpoint.isNullOrBlank()) {
-            Toast.makeText(ctx, "Set an upload URL first.", Toast.LENGTH_SHORT).show()
-            return@rememberLauncherForActivityResult
-        }
         uploading = true
         scope.launch {
-            val result = container.uploadService.upload(uri, endpoint)
+            // Blank endpoint → UploadService falls back to the profile's server.
+            val result = container.uploadService.upload(uri, uploadEndpoint.orEmpty())
             uploading = false
             val msg = when (result) {
                 is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Success -> {
@@ -136,6 +170,29 @@ fun SettingsScreen(
         item {
             GroupHeader("Downloads")
             Group {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Storage access",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (storageGranted)
+                            "Granted. Downloads are saved to Music/Navitunes and survive an app reinstall."
+                        else
+                            "Required for offline downloads. Files are saved to a public " +
+                                "Music/Navitunes folder so they survive an app wipe.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Text3
+                    )
+                    if (!storageGranted) {
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = requestStorage) {
+                            Text("Grant access", color = Accent)
+                        }
+                    }
+                }
                 ToggleRow(
                     icon = Icons.Outlined.Wifi,
                     label = "Wi-Fi only",
@@ -162,9 +219,9 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Subsonic has no upload endpoint — you must run a small receiver " +
-                            "on your server that drops the file into Navidrome's music folder. " +
-                            "See the README.",
+                        "Sends a file to the receiver running on your server, which drops it " +
+                            "into Navidrome's music folder. By default this uses your profile's " +
+                            "server; set a custom URL only if your receiver lives elsewhere.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Text3
                     )
@@ -189,8 +246,10 @@ fun SettingsScreen(
                             TextButton(onClick = { editingUploadUrl = false }) { Text("Cancel") }
                         }
                     } else {
+                        val activeServer = profiles.firstOrNull { it.id == activeId }?.serverUrl
+                        val custom = !uploadEndpoint.isNullOrBlank()
                         Text(
-                            uploadEndpoint ?: "No upload URL set.",
+                            if (custom) uploadEndpoint!! else "Using profile server: ${activeServer ?: "—"}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Text2
                         )
@@ -199,16 +258,15 @@ fun SettingsScreen(
                             TextButton(onClick = { editingUploadUrl = true }) {
                                 Icon(Icons.Outlined.Edit, contentDescription = null)
                                 Spacer(Modifier.size(4.dp))
-                                Text(if (uploadEndpoint == null) "Set URL" else "Edit URL")
+                                Text(if (custom) "Edit URL" else "Custom URL")
+                            }
+                            if (custom) {
+                                TextButton(onClick = {
+                                    scope.launch { container.preferences.setUploadEndpoint(null) }
+                                }) { Text("Use default", color = Accent) }
                             }
                             TextButton(
-                                onClick = {
-                                    if (uploadEndpoint.isNullOrBlank()) {
-                                        Toast.makeText(ctx, "Set an upload URL first.", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        pickAudio.launch("audio/*")
-                                    }
-                                },
+                                onClick = { pickAudio.launch("audio/*") },
                                 enabled = !uploading
                             ) {
                                 if (uploading) {
@@ -224,6 +282,83 @@ fun SettingsScreen(
                                     Spacer(Modifier.size(4.dp))
                                     Text("Choose file", color = Accent)
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            GroupHeader("Discovery")
+            Group {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Spotify search fallback",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "When a search finds nothing in your library, matching results " +
+                            "from Spotify are shown so you can copy the artist + title to find it elsewhere. " +
+                            "Metadata only — nothing is played or downloaded. Create a free app at " +
+                            "developer.spotify.com to get a Client ID and Secret.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Text3
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    val configured = !spotifyId.isNullOrBlank() && !spotifySecret.isNullOrBlank()
+                    if (editingSpotify) {
+                        var idDraft by remember(spotifyId) { mutableStateOf(spotifyId.orEmpty()) }
+                        var secretDraft by remember(spotifySecret) { mutableStateOf(spotifySecret.orEmpty()) }
+                        OutlinedTextField(
+                            value = idDraft,
+                            onValueChange = { idDraft = it },
+                            placeholder = { Text("Client ID") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = secretDraft,
+                            onValueChange = { secretDraft = it },
+                            placeholder = { Text("Client Secret") },
+                            singleLine = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = {
+                                scope.launch {
+                                    container.preferences.setSpotifyCredentials(idDraft, secretDraft)
+                                }
+                                editingSpotify = false
+                            }) { Text("Save", color = Accent) }
+                            TextButton(onClick = { editingSpotify = false }) { Text("Cancel") }
+                        }
+                    } else {
+                        Text(
+                            if (configured) "Configured." else "Not configured.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Text2
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { editingSpotify = true }) {
+                                Text(if (configured) "Edit credentials" else "Set credentials", color = Accent)
+                            }
+                            if (configured) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        val msg = container.spotifyClient.diagnose()
+                                        Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                                    }
+                                }) { Text("Test", color = Accent) }
+                                TextButton(onClick = {
+                                    scope.launch { container.preferences.setSpotifyCredentials(null, null) }
+                                }) { Text("Clear", color = Danger) }
                             }
                         }
                     }
@@ -258,14 +393,119 @@ fun SettingsScreen(
         }
 
         item {
+            GroupHeader("Maintenance")
+            Group {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Fix library metadata",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Runs the server job that normalizes tags from MusicBrainz and " +
+                            "rescans — fixes split albums and inconsistent metadata. This also " +
+                            "runs automatically on a schedule; use this to trigger it now.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Text3
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        enabled = !fixingMetadata,
+                        onClick = {
+                            fixingMetadata = true
+                            scope.launch {
+                                val msg = container.metadataFixService.triggerFix()
+                                fixingMetadata = false
+                                Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    ) {
+                        if (fixingMetadata) {
+                            CircularProgressIndicator(
+                                color = Accent, strokeWidth = 2.dp,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text("Starting…", color = Accent)
+                        } else {
+                            Text("Fix metadata now", color = Accent)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            GroupHeader("Updates")
+            Group {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "App updates",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Checks GitHub Releases for a newer version. Navitunes also checks " +
+                            "automatically on launch. Updates install through Android's own " +
+                            "installer and must be signed with the same key as this build.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Text3
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        enabled = !checkingUpdate,
+                        onClick = {
+                            checkingUpdate = true
+                            scope.launch {
+                                when (val s = container.updateService.check()) {
+                                    is UpdateStatus.Available -> updateResult = s
+                                    UpdateStatus.UpToDate -> Toast.makeText(
+                                        ctx,
+                                        "You're on the latest version " +
+                                            "(${ie.adrianszydlo.navitunes.BuildConfig.VERSION_NAME}).",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    is UpdateStatus.Failed -> Toast.makeText(
+                                        ctx, "Couldn't check: ${s.message}", Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                checkingUpdate = false
+                            }
+                        }
+                    ) {
+                        if (checkingUpdate) {
+                            CircularProgressIndicator(
+                                color = Accent, strokeWidth = 2.dp,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text("Checking…", color = Accent)
+                        } else {
+                            Text("Check for updates", color = Accent)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
             GroupHeader("About")
             Group {
-                StaticRow("Version", "0.3.0")
+                StaticRow(
+                    "Version",
+                    "${ie.adrianszydlo.navitunes.BuildConfig.VERSION_NAME} (${ie.adrianszydlo.navitunes.BuildConfig.VERSION_CODE})"
+                )
                 StaticRow("Build", "Navitunes Android")
                 StaticRow("Source", "github.com/adrianszydlo/navitunes")
             }
             Spacer(Modifier.height(48.dp))
         }
+    }
+
+    updateResult?.let { avail ->
+        UpdateAvailableDialog(available = avail, onDismiss = { updateResult = null })
     }
 
     if (profileToRemove != null) {

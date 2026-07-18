@@ -92,7 +92,10 @@ fun HomeScreen(
     var reloadTick by remember { mutableStateOf(0) }
 
     suspend fun load() {
-        state = HomeState.Loading
+        // Only show the spinner when we have nothing yet; background refreshes
+        // (periodic poll, library-changed signal) swap data in silently.
+        val existing = state as? HomeState.Ready
+        if (existing == null) state = HomeState.Loading
         try {
             // Snapshot recents once per load — collecting the live flow on this screen
             // would re-flow the Column every time you tap a song.
@@ -106,10 +109,12 @@ fun HomeScreen(
             // Newest songs = the first track of the newest N albums (Subsonic has no
             // "recently added songs" endpoint).
             val newestAlbumsDeferred = scope.async { runCatching { repo.albumList("newest", 12) }.getOrDefault(emptyList()) }
-            val randomDeferred = scope.async { runCatching { repo.randomSongs(20) }.getOrDefault(emptyList()) }
             val playlistsDeferred = scope.async { runCatching { repo.allPlaylists() }.getOrDefault(emptyList()) }
+            // Reuse the existing shuffle on a silent refresh so it doesn't visibly
+            // reshuffle every poll; only fetch new random picks on the first load.
+            val random = existing?.shuffle
+                ?: scope.async { runCatching { repo.randomSongs(20) }.getOrDefault(emptyList()) }.await()
             val newestAlbums = newestAlbumsDeferred.await()
-            val random = randomDeferred.await()
             val playlists = playlistsDeferred.await()
 
             // Fetch the first track of the top 8 newest albums in parallel.
@@ -126,7 +131,8 @@ fun HomeScreen(
                 shuffle = random
             )
         } catch (t: Throwable) {
-            state = HomeState.Error(t.message ?: "Unknown error")
+            // Keep showing existing content if a background refresh fails.
+            if (state !is HomeState.Ready) state = HomeState.Error(t.message ?: "Unknown error")
         }
     }
 

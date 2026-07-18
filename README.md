@@ -13,7 +13,8 @@ Based on the [`navitunes_old`](./..) PWA blueprint, rewritten in Kotlin + Jetpac
 - **Full-screen player** — Shuffle, repeat (off / all / one), favorite toggle, ±10s skip, queue view.
 - **Background playback** — Media3 `MediaSessionService` keeps audio playing when the app is backgrounded, with system media notification and lockscreen artwork.
 - **Bluetooth + headset keys** — Play/pause/next via earbuds and car stereos.
-- **Offline downloads** — Per-profile download manager, Wi-Fi-only option, storage usage in Settings.
+- **Offline downloads** — Per-profile download manager, Wi-Fi-only option, storage usage in Settings. Files are saved to a public **`Music/Navitunes/`** folder so they survive an app wipe/reinstall; the app re-indexes them from disk on launch. Requires a one-time "All files access" grant (Settings → Downloads → Grant access).
+- **Discovery search (optional)** — When a search finds nothing in your library, results from the Spotify API are shown under "Not in your library." Tapping one copies "Artist – Title" to the clipboard so you can go find it from your preferred source. Metadata only — nothing is streamed or downloaded. Configure a free Spotify app's Client ID/Secret in Settings → Discovery to enable it.
 - **Encrypted credentials** — Passwords stored in `EncryptedSharedPreferences` with a Keystore-backed master key. Passwords are never sent in cleartext: every request uses the Subsonic salted-MD5 token (`md5(password + salt)`).
 - **No third-party services** — No analytics, no crash reporters, no ads. The only outbound traffic is to *your* Navidrome.
 
@@ -138,10 +139,18 @@ app/src/main/java/ie/adrianszydlo/navitunes/
 
 ## Security & privacy
 
+- Navidrome credentials are stored in `EncryptedSharedPreferences` (AES-256-GCM, Android Keystore master key). App backup is disabled, so credentials can't be pulled via `adb backup`.
 - The default network security config permits HTTP because Navidrome is commonly self-hosted on a LAN. The login screen warns when a non-HTTPS URL is entered. **Use HTTPS over the public internet.**
-- Backup rules exclude credentials and offline files from cloud backup.
-- App permissions are kept to the minimum: `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE` (mediaPlayback), `POST_NOTIFICATIONS`, `WAKE_LOCK`. No external storage, no camera, no contacts, no location.
+- Permissions are scoped to what the features need: `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`/`…_MEDIA_PLAYBACK`, `POST_NOTIFICATIONS`, `WAKE_LOCK`, `MANAGE_EXTERNAL_STORAGE` (offline downloads in a public `Music/Navitunes` folder), and `REQUEST_INSTALL_PACKAGES` (in-app updates). No camera, contacts, or location.
+- Network logging is debug-only (`BuildConfig.DEBUG`, `BASIC` level) — release builds log nothing.
 - Release builds are minified and shrunk via R8 with custom rules for kotlinx-serialization, Retrofit, Media3, and Room.
+- **Supply chain:** every CI run and release produces a CycloneDX SBOM that's scanned for known vulnerabilities (Grype); CodeQL and Dependabot run continuously.
+
+See [`SECURITY.md`](SECURITY.md) for the disclosure policy and [`docs/SECURITY-AUDIT.md`](docs/SECURITY-AUDIT.md) for the full audit.
+
+### In-app updates
+
+Navitunes checks GitHub Releases for a newer version on launch (and on demand via **Settings → Updates → Check for updates**). When one is available it offers to download and install it through Android's own package installer — which only applies the update if it's signed with the same key as your installed build. Nothing installs silently; you confirm in the system UI.
 
 ---
 
@@ -288,15 +297,78 @@ Then in Navitunes: **Settings → Upload → Set URL** to `https://music.adrians
 **Format whitelist (client side):** `mp3 · flac · m4a · aac · ogg · opus · wav`
 **Size cap:** 200 MB per file.
 
+## Releasing to family phones
+
+You want a **single keystore you keep forever**: every update must be signed with the same key or Android refuses to install it over the previous version.
+
+### 1. Create the keystore once
+
+```bash
+keytool -genkey -v -keystore navitunes-release.keystore -alias navitunes \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Back it up somewhere safe (a lost keystore means you can never ship an update — everyone has to uninstall + reinstall). Never commit it; `.gitignore` already excludes `*.keystore` and `release-keystore.properties`.
+
+### 2. Point the build at it
+
+Create `release-keystore.properties` in the project root:
+
+```properties
+storeFile=/absolute/path/to/navitunes-release.keystore
+storePassword=••••••
+keyAlias=navitunes
+keyPassword=••••••
+```
+
+### 3. Build the signed APK
+
+```powershell
+.\gradlew :app:assembleRelease
+```
+
+Output: `app/build/outputs/apk/release/app-release.apk` — minified, shrunk, signed. This is the file you hand out.
+
+### 4. Bump the version for every update
+
+Releases are **tag-driven** — you don't edit the version in code. The
+[`Release` workflow](.github/workflows/release.yml) derives `versionName` and a
+monotonic `versionCode` from the tag you push (`v0.5.1` → `versionName 0.5.1`,
+`versionCode 50101`) and passes them to the build. Local `assembleRelease` builds
+still use the defaults in `app/build.gradle.kts`.
+
+`versionCode` is the one Android actually checks for in-place updates, and the
+in-app updater compares `versionName` against the latest release tag — so pushing
+a higher tag is all that's needed to make existing installs offer the update.
+
+### 5. Distribute
+
+- **Recommended:** push a semver tag (`git tag v0.5.0 && git push origin v0.5.0`). With the four `KEYSTORE_*` GitHub secrets set (see Signing above), CI builds a signed APK and publishes a GitHub Release with the APK, its `.sha256` checksum, a CycloneDX SBOM, and a `latest.json`. Existing installs then surface the update automatically.
+- **No GitHub:** email the APK, drop it in a shared Drive/Dropbox folder, or host it on the homelab.
+
+### 6. What family members do (one time)
+
+1. Download `app-release.apk`.
+2. Open it → Android prompts **"Install unknown apps"** → enable it for the browser/Files app → back out and tap the APK again → **Install**.
+3. First launch asks for **notification permission** — accept it so lockscreen/headset controls work.
+4. Enter the server URL (`https://music.adrianszydlo.ie`), their own Navidrome username + password, tap **Connect**.
+5. *(Optional, for offline)* Settings → Downloads → **Grant access** → toggle "Allow access to manage all files" → back out. Downloads now persist in `Music/Navitunes/` even if the app is reinstalled.
+
+Each person gets their own profile, their own favourites/playlists/play counts, and their own offline downloads. To update later, send the new APK — it installs straight over the old one (same signing key, higher `versionCode`).
+
+> **Pre-flight checklist:** `./gradlew test` green · `versionCode` bumped · signed with the *same* keystore as last time · installed + smoke-tested on one device before sending to everyone.
+
+---
+
 ## Roadmap
 
-The PWA had a clean, focused feature set — Navitunes Android matches it 1:1 and adds the things only a real app can deliver (background playback, system controls, offline). Future work, in roughly that order:
+Future work, in rough priority order:
 
-- Long-press song menus (Download, Play next, Add to queue, View album)
+- Queue persistence across process death (restore the listening session on cold launch)
 - Smart playlists (filter by genre/year/rating)
 - Cast / Chromecast support
-- Wear OS companion
 - Android Auto / Automotive
+- Wear OS companion
 
 ---
 

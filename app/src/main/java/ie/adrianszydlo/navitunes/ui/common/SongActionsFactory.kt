@@ -12,6 +12,7 @@ import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.playback.PlayerController
 import ie.adrianszydlo.navitunes.ui.nav.LocalAddToPlaylistRequest
 import ie.adrianszydlo.navitunes.ui.nav.LocalRemoveSongRequest
+import ie.adrianszydlo.navitunes.ui.nav.LocalSongInfoRequest
 import kotlinx.coroutines.launch
 
 /**
@@ -36,6 +37,7 @@ fun rememberSongActions(
     val uploadEndpoint by container.preferences.uploadEndpoint.collectAsState(initial = null)
     val openPicker = LocalAddToPlaylistRequest.current
     val openRemove = LocalRemoveSongRequest.current
+    val openInfo = LocalSongInfoRequest.current
 
     return remember(song.id, playNow, onOpenAlbum, wifiOnly, uploadEndpoint, onRemoveFromPlaylist) {
         SongActions(
@@ -47,9 +49,13 @@ fun rememberSongActions(
             },
             onAddToPlaylist = { openPicker(song) },
             onDownload = {
-                scope.launch {
-                    container.downloadRepository.enqueueSong(song, wifiOnly)
-                    Toast.makeText(ctx, "Downloading \"${song.title}\"", Toast.LENGTH_SHORT).show()
+                if (!container.downloadRepository.hasStorageAccess()) {
+                    Toast.makeText(ctx, "Grant storage access in Settings → Downloads first.", Toast.LENGTH_LONG).show()
+                } else {
+                    scope.launch {
+                        container.downloadRepository.enqueueSong(song, wifiOnly)
+                        Toast.makeText(ctx, "Downloading \"${song.title}\"", Toast.LENGTH_SHORT).show()
+                    }
                 }
             },
             onFavorite = {
@@ -65,15 +71,14 @@ fun rememberSongActions(
                     }
                 }
             },
+            onShowInfo = { openInfo(song) },
             onOpenAlbum = if (onOpenAlbum != null && !song.albumId.isNullOrBlank()) {
                 { onOpenAlbum(song.albumId) }
             } else null,
             onRemoveFromPlaylist = onRemoveFromPlaylist,
-            // Only surface "Remove from library" when an upload server is configured —
-            // that's the only path that can delete files on the server side.
-            onRemoveFromLibrary = if (!uploadEndpoint.isNullOrBlank()) {
-                { openRemove(song) }
-            } else null
+            // The remove endpoint defaults to the profile server, so this is always
+            // available; it surfaces a clear error if no receiver is running there.
+            onRemoveFromLibrary = { openRemove(song) }
         )
     }
 }

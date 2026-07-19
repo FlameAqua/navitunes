@@ -1,57 +1,85 @@
+@file:OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+
 package ie.adrianszydlo.navitunes.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import ie.adrianszydlo.navitunes.R
 
-// We rely on system fonts to keep APK size small and avoid bundling Fraunces/Geist.
-// The look is achieved with weights, italics, and letter-spacing close to the PWA.
-val DisplayFont = FontFamily.Serif
-val BodyFont = FontFamily.SansSerif
-val MonoFont = FontFamily.Monospace
+// Clean, modern typography:
+//   Geist      — a crisp grotesk used for everything from display headings to body.
+//   Geist Mono — for metadata / all-caps micro-labels (durations, counts, tags).
+//
+// Hierarchy is carried by weight, size and tight tracking (no italics, no serif),
+// giving the confident, understated look of modern product UIs.
+
+private fun geist(weight: Int) = Font(
+    R.font.geist,
+    weight = FontWeight(weight),
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight))
+)
+
+private fun geistMono(weight: Int) = Font(
+    R.font.geist_mono,
+    weight = FontWeight(weight),
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight))
+)
+
+val DisplayFont = FontFamily(
+    geist(400), geist(500), geist(600), geist(700), geist(800)
+)
+
+val BodyFont = DisplayFont
+
+val MonoFont = FontFamily(
+    geistMono(400), geistMono(500), geistMono(600)
+)
 
 val NavitunesTypography = Typography(
     displayLarge = TextStyle(
         fontFamily = DisplayFont,
-        fontWeight = FontWeight.Normal,
-        fontStyle = FontStyle.Italic,
-        fontSize = 56.sp,
-        letterSpacing = (-0.5).sp,
-        lineHeight = 60.sp
+        fontWeight = FontWeight.Bold,
+        fontSize = 44.sp,
+        letterSpacing = (-1.5).sp,
+        lineHeight = 48.sp
     ),
     displayMedium = TextStyle(
         fontFamily = DisplayFont,
-        fontWeight = FontWeight.Normal,
-        fontStyle = FontStyle.Italic,
-        fontSize = 28.sp,
-        letterSpacing = (-0.2).sp
+        fontWeight = FontWeight.Bold,
+        fontSize = 30.sp,
+        letterSpacing = (-0.8).sp,
+        lineHeight = 34.sp
     ),
     titleLarge = TextStyle(
         fontFamily = DisplayFont,
-        fontWeight = FontWeight.Medium,
-        fontStyle = FontStyle.Italic,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
-        letterSpacing = (-0.1).sp
+        letterSpacing = (-0.5).sp,
+        lineHeight = 26.sp
     ),
     titleMedium = TextStyle(
         fontFamily = DisplayFont,
-        fontWeight = FontWeight.Medium,
-        fontStyle = FontStyle.Italic,
-        fontSize = 19.sp
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 18.sp,
+        letterSpacing = (-0.4).sp
     ),
     bodyLarge = TextStyle(
         fontFamily = BodyFont,
         fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
-        lineHeight = 22.sp
+        lineHeight = 22.sp,
+        letterSpacing = (-0.1).sp
     ),
     bodyMedium = TextStyle(
         fontFamily = BodyFont,
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp
+        fontSize = 14.sp,
+        letterSpacing = (-0.1).sp
     ),
     bodySmall = TextStyle(
         fontFamily = BodyFont,
@@ -62,18 +90,18 @@ val NavitunesTypography = Typography(
         fontFamily = BodyFont,
         fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
-        letterSpacing = 0.4.sp
+        letterSpacing = 0.1.sp
     ),
     labelMedium = TextStyle(
         fontFamily = MonoFont,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
-        letterSpacing = 1.5.sp
+        letterSpacing = 1.2.sp
     ),
     labelSmall = TextStyle(
         fontFamily = MonoFont,
         fontWeight = FontWeight.Normal,
         fontSize = 10.sp,
-        letterSpacing = 1.5.sp
+        letterSpacing = 1.2.sp
     )
 )

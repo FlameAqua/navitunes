@@ -16,8 +16,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import android.widget.Toast
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
@@ -40,7 +38,7 @@ fun AlbumScreen(
     val container = NavitunesApp.container()
     val repo = container.libraryRepository
     val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
+    val notifier = ie.adrianszydlo.navitunes.ui.common.LocalNotifier.current
     val wifiOnly by container.preferences.wifiOnly.collectAsState(initial = false)
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -93,15 +91,11 @@ fun AlbumScreen(
                             onDownload = if (songs.isNotEmpty()) {
                                 {
                                     if (!container.downloadRepository.hasStorageAccess()) {
-                                        Toast.makeText(ctx, "Grant storage access in Settings → Downloads first.", Toast.LENGTH_LONG).show()
+                                        notifier.error("Grant storage access in Settings → Downloads first.")
                                     } else {
                                         scope.launch {
                                             container.downloadRepository.enqueueAll(songs, wifiOnly)
-                                            Toast.makeText(
-                                                ctx,
-                                                "Downloading ${songs.size} song${if (songs.size == 1) "" else "s"}",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                            notifier.info("Downloading ${songs.size} song${if (songs.size == 1) "" else "s"}")
                                         }
                                     }
                                 }

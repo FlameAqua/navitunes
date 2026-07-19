@@ -33,7 +33,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -90,13 +89,11 @@ fun LoginScreen(
                         "Navi",
                         style = MaterialTheme.typography.displayLarge,
                         color = MaterialTheme.colorScheme.onBackground,
-                        fontStyle = FontStyle.Italic
                     )
                     Text(
                         "tunes",
                         style = MaterialTheme.typography.displayLarge,
                         color = Accent,
-                        fontStyle = FontStyle.Italic
                     )
                 }
                 Spacer(Modifier.height(4.dp))

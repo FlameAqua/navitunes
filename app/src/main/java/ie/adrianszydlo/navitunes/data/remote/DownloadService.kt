@@ -4,10 +4,13 @@ import android.util.Log
 import androidx.core.net.toUri
 import ie.adrianszydlo.navitunes.data.auth.ProfileStore
 import ie.adrianszydlo.navitunes.data.auth.SubsonicAuth
+import ie.adrianszydlo.navitunes.data.discovery.SpotifyResult
+import ie.adrianszydlo.navitunes.data.discovery.SpotifyType
 import ie.adrianszydlo.navitunes.data.prefs.AppPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -34,7 +37,7 @@ class DownloadService(
     private val profileStore: ProfileStore,
     private val preferences: AppPreferences
 ) {
-    private val json = Json { encodeDefaults = true }
+    private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
     // Short-fused client for the liveness probe — we want a quick yes/no.
     private val healthClient: OkHttpClient = okHttp.newBuilder()
@@ -90,10 +93,51 @@ class DownloadService(
         }
     }
 
+    @Serializable
+    private data class HealthResponse(val status: String = "ok", val downloading: Boolean = false)
+
+    /**
+     * Whether the server currently has a download running. Reads the `downloading`
+     * flag from `/health` (added server-side); if the server doesn't report it, this
+     * returns false so the caller degrades to "assume finished".
+     */
+    suspend fun isDownloading(): Boolean = withContext(Dispatchers.IO) {
+        val base = base() ?: return@withContext false
+        runCatching {
+            healthClient.newCall(Request.Builder().url("$base/health").get().build())
+                .execute().use { resp ->
+                    if (!resp.isSuccessful) return@use false
+                    val body = resp.body.string()
+                    runCatching { json.decodeFromString(HealthResponse.serializer(), body).downloading }
+                        .getOrDefault(false)
+                }
+        }.getOrDefault(false)
+    }
+
     /**
      * Asks the server to download [message] (e.g. `"track 29mlJg…"`). Blocks
      * until the server responds. Never throws — returns an [Outcome].
      */
+    /**
+     * Asks the server to cancel the currently-running download (kills the spotdl
+     * process server-side). Best-effort; returns whether the server acknowledged.
+     */
+    suspend fun requestCancel(): Boolean = withContext(Dispatchers.IO) {
+        val profile = profileStore.active ?: return@withContext false
+        val base = base() ?: return@withContext false
+        val url = "$base/cancel".toUri().buildUpon().apply {
+            for ((k, v) in SubsonicAuth.params(profile.username, profile.password)) appendQueryParameter(k, v)
+        }.build().toString()
+        runCatching {
+            healthClient.newCall(
+                Request.Builder().url(url).post("".toRequestBody("application/json".toMediaType())).build()
+            ).execute().use { it.isSuccessful }
+        }.getOrElse {
+            Log.w(TAG, "cancel failed: ${it.message}")
+            false
+        }
+    }
+
     suspend fun requestDownload(message: String): Outcome = withContext(Dispatchers.IO) {
         val profile = profileStore.active
             ?: return@withContext Outcome.Failure("No active profile")

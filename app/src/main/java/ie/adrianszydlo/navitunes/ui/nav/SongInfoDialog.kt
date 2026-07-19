@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -53,12 +52,17 @@ fun SongInfoDialog(song: Song, onDismiss: () -> Unit) {
             add("Track" to if (disc != null && disc > 0) "Disc $disc · #$t" else "#$t")
         }
         full.year?.let { add("Year" to it.toString()) }
-        full.genre?.takeIf { it.isNotBlank() }?.let { add("Genre" to it) }
+        val genreText = full.genres.map { it.name }.filter { it.isNotBlank() }
+            .ifEmpty { listOfNotNull(full.genre?.takeIf { it.isNotBlank() }) }
+            .joinToString(", ")
+        if (genreText.isNotBlank()) add((if (full.genres.size > 1) "Genres" else "Genre") to genreText)
+        full.bpm?.takeIf { it > 0 }?.let { add("BPM" to it.toString()) }
         if (full.duration > 0) add("Duration" to formatDuration(full.duration))
         formatStr(full.suffix, full.contentType, full.bitRate)?.let { add("Format" to it) }
         full.size?.takeIf { it > 0 }?.let { add("Size" to formatBytes(it)) }
         full.playCount?.takeIf { it > 0 }?.let { add("Play count" to it.toString()) }
         add("Offline" to if (downloaded) "Downloaded" else "Streaming")
+        full.comment?.takeIf { it.isNotBlank() }?.let { add("Comment" to it) }
         full.musicBrainzId?.takeIf { it.isNotBlank() }?.let { add("MusicBrainz ID" to it) }
         full.path?.takeIf { it.isNotBlank() }?.let { add("Path" to it) }
     }

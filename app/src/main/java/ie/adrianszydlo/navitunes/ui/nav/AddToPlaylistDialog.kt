@@ -1,6 +1,5 @@
 package ie.adrianszydlo.navitunes.ui.nav
 
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,7 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
@@ -49,7 +47,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
     val container = NavitunesApp.container()
-    val ctx = LocalContext.current
+    val notifier = ie.adrianszydlo.navitunes.ui.common.LocalNotifier.current
     val scope = rememberCoroutineScope()
     var playlists by remember { mutableStateOf<List<Playlist>?>(null) }
     var creating by remember { mutableStateOf(false) }
@@ -100,10 +98,10 @@ fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
                                                 container.libraryRepository.addToPlaylist(created.id, listOf(song.id))
                                             }.onSuccess {
                                                 container.librarySignals.notifyChanged()
-                                                Toast.makeText(ctx, "Added to \"$name\"", Toast.LENGTH_SHORT).show()
+                                                notifier.success("Added to \"$name\"")
                                                 onDismiss()
                                             }.onFailure {
-                                                Toast.makeText(ctx, "Couldn't add", Toast.LENGTH_SHORT).show()
+                                                notifier.error("Couldn't add")
                                             }
                                         }
                                     }
@@ -144,10 +142,10 @@ fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
                                                     container.libraryRepository.addToPlaylist(p.id, listOf(song.id))
                                                 }.onSuccess {
                                                     container.librarySignals.notifyChanged()
-                                                    Toast.makeText(ctx, "Added to \"${p.name}\"", Toast.LENGTH_SHORT).show()
+                                                    notifier.success("Added to \"${p.name}\"")
                                                     onDismiss()
                                                 }.onFailure {
-                                                    Toast.makeText(ctx, "Couldn't add", Toast.LENGTH_SHORT).show()
+                                                    notifier.error("Couldn't add")
                                                 }
                                             }
                                         }

@@ -8,10 +8,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import ie.adrianszydlo.navitunes.ui.nav.RootNav
 import ie.adrianszydlo.navitunes.ui.theme.NavitunesTheme
+import ie.adrianszydlo.navitunes.ui.theme.ThemeMode
 
 class MainActivity : ComponentActivity() {
 
@@ -24,7 +27,15 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         setContent {
-            NavitunesTheme {
+            val themeToken by NavitunesApp.container().preferences.themeMode
+                .collectAsState(initial = "system")
+            val mode = when (themeToken) {
+                "light" -> ThemeMode.LIGHT
+                "dark" -> ThemeMode.DARK
+                "sequoia" -> ThemeMode.SEQUOIA
+                else -> ThemeMode.SYSTEM
+            }
+            NavitunesTheme(themeMode = mode) {
                 RootNav()
             }
         }

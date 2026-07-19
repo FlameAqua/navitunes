@@ -1,8 +1,11 @@
 package ie.adrianszydlo.navitunes.ui.player
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,11 +42,13 @@ import ie.adrianszydlo.navitunes.ui.theme.AccentOn
 import ie.adrianszydlo.navitunes.ui.theme.BorderCol
 import ie.adrianszydlo.navitunes.ui.theme.SurfaceElev
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MiniPlayer(
     controller: PlayerController,
     modifier: Modifier = Modifier,
-    onExpand: () -> Unit
+    onExpand: () -> Unit,
+    onLongPress: () -> Unit = {}
 ) {
     val current by controller.currentItem.collectAsStateWithLifecycle()
     val playing by controller.isPlaying.collectAsStateWithLifecycle()
@@ -58,7 +63,7 @@ fun MiniPlayer(
             .clip(RoundedCornerShape(14.dp))
             .background(SurfaceElev)
             .border(1.dp, BorderCol, RoundedCornerShape(14.dp))
-            .clickable(onClick = onExpand)
+            .combinedClickable(onClick = onExpand, onLongClick = onLongPress)
             .swipeToSkip(
                 onSwipeLeft = { controller.next() },
                 onSwipeRight = { controller.prev() }
@@ -80,7 +85,8 @@ fun MiniPlayer(
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.basicMarquee()
                 )
                 Text(
                     song.artist.orEmpty(),
@@ -102,11 +108,13 @@ fun MiniPlayer(
                         .padding(6.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (playing) "Pause" else "Play",
-                        tint = AccentOn
-                    )
+                    Crossfade(targetState = playing, label = "miniPlayPause") { p ->
+                        Icon(
+                            if (p) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (p) "Pause" else "Play",
+                            tint = AccentOn
+                        )
+                    }
                 }
             }
             IconButton(onClick = { controller.next() }) {

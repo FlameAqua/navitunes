@@ -26,7 +26,58 @@ data class SubsonicResponse(
     val playlist: Playlist? = null,
     val starred2: Starred? = null,
     val searchResult3: SearchResult? = null,
-    val song: Song? = null
+    val song: Song? = null,
+    val lyrics: PlainLyrics? = null,
+    val lyricsList: LyricsList? = null,
+    val genres: GenresWrapper? = null,
+    val songsByGenre: SongsByGenre? = null
+)
+
+@Serializable
+data class GenresWrapper(val genre: List<GenreEntry> = emptyList())
+
+@Serializable
+data class GenreEntry(
+    val value: String = "",
+    val songCount: Int = 0,
+    val albumCount: Int = 0
+)
+
+@Serializable
+data class SongsByGenre(val song: List<Song> = emptyList())
+
+/** OpenSubsonic multi-genre reference (a song can carry several). */
+@Serializable
+data class GenreRef(val name: String = "")
+
+@Serializable
+data class PlainLyrics(
+    val artist: String? = null,
+    val title: String? = null,
+    val value: String = ""
+)
+
+/** OpenSubsonic getLyricsBySongId payload — supports synced (timed) lyrics. */
+@Serializable
+data class LyricsList(
+    val structuredLyrics: List<StructuredLyrics> = emptyList()
+)
+
+@Serializable
+data class StructuredLyrics(
+    val displayArtist: String? = null,
+    val displayTitle: String? = null,
+    val lang: String? = null,
+    val synced: Boolean = false,
+    val offset: Long = 0,
+    val line: List<LyricLine> = emptyList()
+)
+
+@Serializable
+data class LyricLine(
+    /** Start time in ms for synced lyrics; null for plain lines. */
+    val start: Long? = null,
+    val value: String = ""
 )
 
 @Serializable
@@ -121,5 +172,9 @@ data class Song(
     val discNumber: Int? = null,
     val path: String? = null,
     val musicBrainzId: String? = null,
-    val playCount: Int? = null
+    val playCount: Int? = null,
+    // OpenSubsonic extras — richer metadata for exploration.
+    val bpm: Int? = null,
+    val comment: String? = null,
+    val genres: List<GenreRef> = emptyList()
 )

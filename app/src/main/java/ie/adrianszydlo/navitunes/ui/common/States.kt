@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -15,7 +14,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ie.adrianszydlo.navitunes.ui.theme.Accent
@@ -33,10 +31,10 @@ fun Loading(modifier: Modifier = Modifier) {
 fun EmptyState(
     title: String,
     body: String,
+    modifier: Modifier = Modifier,
     glyph: String = "∅",
     actionLabel: String? = null,
-    onAction: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    onAction: (() -> Unit)? = null
 ) {
     Column(
         modifier
@@ -46,7 +44,6 @@ fun EmptyState(
     ) {
         Text(
             glyph,
-            fontStyle = FontStyle.Italic,
             color = Text4,
             fontSize = 72.sp,
             style = MaterialTheme.typography.displayLarge
@@ -74,16 +71,16 @@ fun EmptyState(
 fun ErrorState(
     title: String,
     body: String,
-    onRetry: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRetry: (() -> Unit)? = null
 ) {
     EmptyState(
         title = title,
         body = body,
+        modifier = modifier,
         glyph = "!",
         actionLabel = if (onRetry != null) "Retry" else null,
-        onAction = onRetry,
-        modifier = modifier
+        onAction = onRetry
     )
 }
 
@@ -93,7 +90,6 @@ fun SectionHead(title: String, subtitle: String? = null) {
         Text(
             title,
             style = MaterialTheme.typography.titleMedium,
-            fontStyle = FontStyle.Italic,
             modifier = Modifier.align(Alignment.CenterStart)
         )
         if (subtitle != null) {

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Brand palette from the PWA -->
-    <color name="bg">#0e0a08</color>
+    <!-- Native window background (light). The dark variant lives in values-night/.
+         Compose drives all in-app colours; this only paints the pre-composition frame. -->
+    <color name="bg">#f5f0e8</color>
     <color name="bg_top">#1a0f0a</color>
     <color name="surface">#15100d</color>
     <color name="surface_elev">#1f1813</color>

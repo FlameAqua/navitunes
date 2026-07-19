@@ -31,7 +31,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Row
@@ -60,7 +59,6 @@ fun ProfilePickerScreen(
         Text(
             "Profiles",
             style = MaterialTheme.typography.displayMedium,
-            fontStyle = FontStyle.Italic
         )
         Spacer(Modifier.height(4.dp))
         Text(

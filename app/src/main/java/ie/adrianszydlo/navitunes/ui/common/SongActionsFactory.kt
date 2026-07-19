@@ -1,12 +1,10 @@
 package ie.adrianszydlo.navitunes.ui.common
 
-import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalContext
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.playback.PlayerController
@@ -32,7 +30,7 @@ fun rememberSongActions(
 ): SongActions {
     val container = NavitunesApp.container()
     val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
+    val notifier = LocalNotifier.current
     val wifiOnly by container.preferences.wifiOnly.collectAsState(initial = false)
     val uploadEndpoint by container.preferences.uploadEndpoint.collectAsState(initial = null)
     val openPicker = LocalAddToPlaylistRequest.current
@@ -45,16 +43,16 @@ fun rememberSongActions(
             onPlayNext = { controller.playNext(song) },
             onAddToQueue = {
                 controller.addToQueue(song)
-                Toast.makeText(ctx, "Added to queue", Toast.LENGTH_SHORT).show()
+                notifier.info("Added to queue")
             },
             onAddToPlaylist = { openPicker(song) },
             onDownload = {
                 if (!container.downloadRepository.hasStorageAccess()) {
-                    Toast.makeText(ctx, "Grant storage access in Settings → Downloads first.", Toast.LENGTH_LONG).show()
+                    notifier.error("Grant storage access in Settings → Downloads first.")
                 } else {
                     scope.launch {
                         container.downloadRepository.enqueueSong(song, wifiOnly)
-                        Toast.makeText(ctx, "Downloading \"${song.title}\"", Toast.LENGTH_SHORT).show()
+                        notifier.info("Downloading \"${song.title}\"")
                     }
                 }
             },
@@ -63,10 +61,10 @@ fun rememberSongActions(
                     runCatching {
                         if (song.starred.isNullOrBlank()) {
                             container.playbackRepository.star(song.id)
-                            Toast.makeText(ctx, "Added to favorites", Toast.LENGTH_SHORT).show()
+                            notifier.success("Added to favorites")
                         } else {
                             container.playbackRepository.unstar(song.id)
-                            Toast.makeText(ctx, "Removed from favorites", Toast.LENGTH_SHORT).show()
+                            notifier.info("Removed from favorites")
                         }
                     }
                 }

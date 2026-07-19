@@ -1,5 +1,13 @@
 package ie.adrianszydlo.navitunes.ui.nav
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +23,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -28,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -36,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -55,15 +66,17 @@ import ie.adrianszydlo.navitunes.ui.home.HomeScreen
 import ie.adrianszydlo.navitunes.ui.library.LibraryScreen
 import ie.adrianszydlo.navitunes.ui.login.LoginScreen
 import ie.adrianszydlo.navitunes.ui.player.FullPlayerSheet
-import ie.adrianszydlo.navitunes.ui.player.MiniPlayer
+import ie.adrianszydlo.navitunes.ui.player.PlayerDock
 import ie.adrianszydlo.navitunes.ui.profile.ProfilePickerScreen
 import ie.adrianszydlo.navitunes.ui.search.SearchScreen
 import ie.adrianszydlo.navitunes.ui.settings.SettingsScreen
 import ie.adrianszydlo.navitunes.data.update.UpdateStatus
 import ie.adrianszydlo.navitunes.ui.update.UpdateAvailableDialog
+import ie.adrianszydlo.navitunes.ui.common.LocalNotifier
+import ie.adrianszydlo.navitunes.ui.common.NavSnackbarHost
+import ie.adrianszydlo.navitunes.ui.common.Notifier
 import ie.adrianszydlo.navitunes.ui.theme.Accent
 import kotlinx.coroutines.flow.first
-import ie.adrianszydlo.navitunes.ui.theme.BorderCol
 import ie.adrianszydlo.navitunes.ui.theme.Text3
 
 /** How often to silently refresh the visible screen while foregrounded. */
@@ -120,7 +133,6 @@ fun RootNav() {
 @Composable
 private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
     val container = NavitunesApp.container()
-    val ctx = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     var songForPlaylist by remember { mutableStateOf<Song?>(null) }
@@ -134,6 +146,9 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
     val openPicker: (Song) -> Unit = remember { { song -> songForPlaylist = song } }
     val openRemove: (Song) -> Unit = remember { { song -> songForRemoval = song } }
     val openInfo: (Song) -> Unit = remember { { song -> songForInfo = song } }
+
+    val snackHost = remember { SnackbarHostState() }
+    val notifier = remember(snackHost, scope) { Notifier(snackHost, scope) }
 
     val downloadedIds by container.downloadRepository
         .observeDownloadedIdsForActiveProfile()
@@ -157,7 +172,7 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
-                delay(AUTO_REFRESH_INTERVAL_MS)
+                delay(AUTO_REFRESH_INTERVAL_MS.milliseconds)
                 container.librarySignals.notifyChanged()
             }
         }
@@ -178,9 +193,10 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
         LocalAddToPlaylistRequest provides openPicker,
         LocalRemoveSongRequest provides openRemove,
         LocalSongInfoRequest provides openInfo,
-        LocalDownloadedIds provides downloadedIds
+        LocalDownloadedIds provides downloadedIds,
+        LocalNotifier provides notifier
     ) {
-        MainShellInner(controller = controller, onAddProfile = onAddProfile)
+        MainShellInner(controller = controller, onAddProfile = onAddProfile, snackHost = snackHost)
 
         songForPlaylist?.let { song ->
             AddToPlaylistDialog(song = song, onDismiss = { songForPlaylist = null })
@@ -209,10 +225,10 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
                         when (result) {
                             is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Success -> {
                                 onSongRemoved(container, controller, song)
-                                android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
+                                notifier.success(result.message)
                             }
                             is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Failure ->
-                                android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
+                                notifier.error(result.message)
                             is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous ->
                                 ambiguousRemoval = song to result
                         }
@@ -236,12 +252,12 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
                         when (result) {
                             is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Success -> {
                                 onSongRemoved(container, controller, song)
-                                android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
+                                notifier.success(result.message)
                             }
                             is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Failure ->
-                                android.widget.Toast.makeText(ctx, result.message, android.widget.Toast.LENGTH_LONG).show()
+                                notifier.error(result.message)
                             is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous ->
-                                android.widget.Toast.makeText(ctx, "Still ambiguous — try again.", android.widget.Toast.LENGTH_LONG).show()
+                                notifier.error("Still ambiguous — try again.")
                         }
                     }
                     ambiguousRemoval = null
@@ -289,7 +305,11 @@ private fun onSongRemoved(
 }
 
 @Composable
-private fun MainShellInner(controller: PlayerController, onAddProfile: () -> Unit) {
+private fun MainShellInner(
+    controller: PlayerController,
+    onAddProfile: () -> Unit,
+    snackHost: SnackbarHostState
+) {
     val nav = rememberNavController()
     val backEntry by nav.currentBackStackEntryAsState()
     val currentRoute = backEntry?.destination?.route
@@ -320,7 +340,11 @@ private fun MainShellInner(controller: PlayerController, onAddProfile: () -> Uni
             NavHost(
                 navController = nav,
                 startDestination = Routes.HOME,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                enterTransition = { fadeIn(tween(240)) + scaleIn(tween(240), initialScale = 0.98f) },
+                exitTransition = { fadeOut(tween(160)) },
+                popEnterTransition = { fadeIn(tween(240)) },
+                popExitTransition = { fadeOut(tween(160)) + scaleOut(tween(200), targetScale = 0.98f) }
             ) {
                 composable(Routes.HOME) {
                     HomeScreen(
@@ -402,17 +426,22 @@ private fun MainShellInner(controller: PlayerController, onAddProfile: () -> Uni
                 }
             }
 
-            // Mini-player floats above the bottom nav, anchored to the bottom of the scaffold content area.
+            // Docked player: mini-player, or a draggable bubble after a long-press.
             if (current != null) {
-                MiniPlayer(
+                PlayerDock(
                     controller = controller,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
                     onExpand = { showFullPlayer = true }
                 )
             }
+
+            // In-app notifications sit just above the mini-player (or the nav bar when idle).
+            NavSnackbarHost(
+                hostState = snackHost,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(bottom = if (current != null) 84.dp else 16.dp)
+            )
         }
     }
 
@@ -435,17 +464,22 @@ private fun BottomBar(currentRoute: String?, onSelect: (String) -> Unit) {
     ) {
         items.forEach { (route, icon, label) ->
             val selected = currentRoute == route || (currentRoute == null && route == Routes.HOME)
+            val iconScale by animateFloatAsState(
+                targetValue = if (selected) 1.12f else 1f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                label = "navIconScale"
+            )
             NavigationBarItem(
                 selected = selected,
                 onClick = { onSelect(route) },
-                icon = { Icon(icon, contentDescription = label) },
+                icon = { Icon(icon, contentDescription = label, modifier = Modifier.scale(iconScale)) },
                 label = { Text(label, style = MaterialTheme.typography.labelMedium) },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = Accent,
                     selectedTextColor = Accent,
                     unselectedIconColor = Text3,
                     unselectedTextColor = Text3,
-                    indicatorColor = BorderCol
+                    indicatorColor = Accent.copy(alpha = 0.14f)
                 )
             )
         }

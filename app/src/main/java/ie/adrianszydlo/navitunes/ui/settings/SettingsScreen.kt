@@ -1,5 +1,9 @@
 package ie.adrianszydlo.navitunes.ui.settings
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,10 +23,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.BrightnessAuto
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Forest
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,7 +41,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.platform.LocalContext
-import android.widget.Toast
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -46,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
@@ -57,6 +67,7 @@ import ie.adrianszydlo.navitunes.ui.theme.Accent
 import ie.adrianszydlo.navitunes.ui.theme.AccentOn
 import ie.adrianszydlo.navitunes.ui.theme.Danger
 import ie.adrianszydlo.navitunes.ui.theme.Surface
+import ie.adrianszydlo.navitunes.ui.theme.SurfaceElev
 import ie.adrianszydlo.navitunes.ui.theme.Text2
 import ie.adrianszydlo.navitunes.ui.theme.Text3
 import kotlinx.coroutines.launch
@@ -71,12 +82,19 @@ fun SettingsScreen(
     val profiles by container.profileStore.profiles.collectAsState()
     val activeId by container.profileStore.activeId.collectAsState()
     val wifiOnly by container.preferences.wifiOnly.collectAsState(initial = false)
+    val skipSilence by container.preferences.skipSilence.collectAsState(initial = false)
+    val themeToken by container.preferences.themeMode.collectAsState(initial = "system")
     val uploadEndpoint by container.preferences.uploadEndpoint.collectAsState(initial = null)
     val spotifyId by container.preferences.spotifyClientId.collectAsState(initial = null)
     val spotifySecret by container.preferences.spotifyClientSecret.collectAsState(initial = null)
     var editingSpotify by remember { mutableStateOf(false) }
     var fixingMetadata by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
+    val notifier = ie.adrianszydlo.navitunes.ui.common.LocalNotifier.current
+    // Which settings categories are expanded. Appearance + Profiles open by default.
+    val expanded = remember {
+        androidx.compose.runtime.mutableStateMapOf("Appearance" to true, "Profiles" to true)
+    }
 
     var pingMessage by remember { mutableStateOf<String?>(null) }
     var profileToRemove by remember { mutableStateOf<Profile?>(null) }
@@ -132,7 +150,7 @@ fun SettingsScreen(
                 is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Failure -> "Upload failed: ${result.message}"
                 is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous -> "Upload ambiguous."
             }
-            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+            notifier.info(msg)
         }
     }
 
@@ -140,8 +158,42 @@ fun SettingsScreen(
         item { ScreenTopBar(title = "Settings") }
 
         item {
-            GroupHeader("Profiles")
-            Group {
+            SettingsSection("Appearance", expanded) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Theme",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Choose light, dark, or follow your system setting.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Text3
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    ThemeSelector(
+                        current = themeToken,
+                        onSelect = { token -> scope.launch { container.preferences.setThemeMode(token) } }
+                    )
+                }
+            }
+        }
+
+        item {
+            SettingsSection("Playback", expanded) {
+                ToggleRow(
+                    icon = Icons.Outlined.GraphicEq,
+                    label = "Skip silence",
+                    description = "Trim silent gaps within and between tracks for tighter playback.",
+                    value = skipSilence,
+                    onChange = { scope.launch { container.preferences.setSkipSilence(it) } }
+                )
+            }
+        }
+
+        item {
+            SettingsSection("Profiles", expanded) {
                 profiles.forEach { p ->
                     ProfileSettingsRow(
                         profile = p,
@@ -168,8 +220,7 @@ fun SettingsScreen(
         }
 
         item {
-            GroupHeader("Downloads")
-            Group {
+            SettingsSection("Downloads", expanded) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
                         "Storage access",
@@ -209,8 +260,7 @@ fun SettingsScreen(
         }
 
         item {
-            GroupHeader("Upload")
-            Group {
+            SettingsSection("Upload", expanded) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
                         "Upload song to library",
@@ -290,8 +340,7 @@ fun SettingsScreen(
         }
 
         item {
-            GroupHeader("Discovery")
-            Group {
+            SettingsSection("Discovery", expanded) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
                         "Spotify search fallback",
@@ -353,7 +402,7 @@ fun SettingsScreen(
                                 TextButton(onClick = {
                                     scope.launch {
                                         val msg = container.spotifyClient.diagnose()
-                                        Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                                        notifier.info(msg)
                                     }
                                 }) { Text("Test", color = Accent) }
                                 TextButton(onClick = {
@@ -367,8 +416,7 @@ fun SettingsScreen(
         }
 
         item {
-            GroupHeader("Connection")
-            Group {
+            SettingsSection("Connection", expanded) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Test connection", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(6.dp))
@@ -393,8 +441,7 @@ fun SettingsScreen(
         }
 
         item {
-            GroupHeader("Maintenance")
-            Group {
+            SettingsSection("Maintenance", expanded) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
                         "Fix library metadata",
@@ -417,7 +464,7 @@ fun SettingsScreen(
                             scope.launch {
                                 val msg = container.metadataFixService.triggerFix()
                                 fixingMetadata = false
-                                Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                                notifier.info(msg)
                             }
                         }
                     ) {
@@ -437,8 +484,7 @@ fun SettingsScreen(
         }
 
         item {
-            GroupHeader("Updates")
-            Group {
+            SettingsSection("Updates", expanded) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
                         "App updates",
@@ -461,15 +507,10 @@ fun SettingsScreen(
                             scope.launch {
                                 when (val s = container.updateService.check()) {
                                     is UpdateStatus.Available -> updateResult = s
-                                    UpdateStatus.UpToDate -> Toast.makeText(
-                                        ctx,
+                                    UpdateStatus.UpToDate -> notifier.success(
                                         "You're on the latest version " +
-                                            "(${ie.adrianszydlo.navitunes.BuildConfig.VERSION_NAME}).",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                    is UpdateStatus.Failed -> Toast.makeText(
-                                        ctx, "Couldn't check: ${s.message}", Toast.LENGTH_LONG
-                                    ).show()
+                                            "(${ie.adrianszydlo.navitunes.BuildConfig.VERSION_NAME}).")
+                                    is UpdateStatus.Failed -> notifier.error("Couldn't check: ${s.message}")
                                 }
                                 checkingUpdate = false
                             }
@@ -491,8 +532,7 @@ fun SettingsScreen(
         }
 
         item {
-            GroupHeader("About")
-            Group {
+            SettingsSection("About", expanded) {
                 StaticRow(
                     "Version",
                     "${ie.adrianszydlo.navitunes.BuildConfig.VERSION_NAME} (${ie.adrianszydlo.navitunes.BuildConfig.VERSION_CODE})"
@@ -529,14 +569,90 @@ fun SettingsScreen(
     }
 }
 
+/** System / Light / Dark / Sequoia selector as a 2×2 grid with an animated selection pill. */
 @Composable
-private fun GroupHeader(title: String) {
-    Text(
-        title.uppercase(),
-        style = MaterialTheme.typography.labelMedium,
-        color = Text3,
-        modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 8.dp)
+private fun ThemeSelector(current: String, onSelect: (String) -> Unit) {
+    val options = listOf(
+        Triple("system", "System", Icons.Outlined.BrightnessAuto),
+        Triple("light", "Light", Icons.Outlined.LightMode),
+        Triple("dark", "Dark", Icons.Outlined.DarkMode),
+        Triple("sequoia", "Sequoia", Icons.Outlined.Forest)
     )
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(SurfaceElev)
+            .padding(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        options.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                row.forEach { (token, label, icon) ->
+                    val selected = token == current
+                    val bg by animateColorAsState(
+                        targetValue = if (selected) Accent else androidx.compose.ui.graphics.Color.Transparent,
+                        animationSpec = tween(220), label = "themeBg"
+                    )
+                    val fg by animateColorAsState(
+                        targetValue = if (selected) AccentOn else Text2,
+                        animationSpec = tween(220), label = "themeFg"
+                    )
+                    Row(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(bg)
+                            .clickable { onSelect(token) }
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(8.dp))
+                        Text(label, color = fg, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A collapsible settings category: an all-caps header with a chevron that expands
+ *  its card of options. Keeps the screen tidy instead of one long list. */
+@Composable
+private fun SettingsSection(
+    title: String,
+    expandedMap: androidx.compose.runtime.snapshots.SnapshotStateMap<String, Boolean>,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val open = expandedMap[title] ?: false
+    val rotation by animateFloatAsState(if (open) 180f else 0f, tween(220), label = "chevron")
+    Column(Modifier.padding(top = 6.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { expandedMap[title] = !open }
+                .padding(start = 24.dp, end = 18.dp, top = 12.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                color = Text3,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                Icons.Outlined.ExpandMore,
+                contentDescription = if (open) "Collapse" else "Expand",
+                tint = Text3,
+                modifier = Modifier.rotate(rotation).size(20.dp)
+            )
+        }
+        AnimatedVisibility(visible = open) {
+            Group { content() }
+        }
+    }
 }
 
 @Composable

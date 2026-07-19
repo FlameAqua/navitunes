@@ -1,5 +1,6 @@
 package ie.adrianszydlo.navitunes.ui.detail
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,13 +27,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.ui.common.ArtImage
 import ie.adrianszydlo.navitunes.ui.theme.Accent
 import ie.adrianszydlo.navitunes.ui.theme.AccentOn
+import ie.adrianszydlo.navitunes.ui.theme.NavTheme
 import ie.adrianszydlo.navitunes.ui.theme.Text2
 import ie.adrianszydlo.navitunes.ui.theme.Text3
 
@@ -46,62 +50,91 @@ fun DetailHeader(
     onBack: () -> Unit,
     trailing: (@Composable () -> Unit)? = null
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Text2)
-        }
-        Spacer(Modifier.weight(1f))
-        trailing?.invoke()
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
-        verticalAlignment = Alignment.Bottom
-    ) {
+    val bg = NavTheme.colors.bg
+    Box(Modifier.fillMaxWidth()) {
+        // Blurred cover art backdrop that fades into the page background.
+        ArtImage(
+            coverId = coverArt,
+            fallback = title,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(340.dp)
+                .blur(36.dp),
+            cornerRadius = 0.dp,
+            requestSize = 400
+        )
         Box(
             Modifier
-                .size(130.dp)
-                .clip(RoundedCornerShape(10.dp))
-        ) {
-            ArtImage(
-                coverId = coverArt,
-                fallback = title,
-                modifier = Modifier.fillMaxSize(),
-                cornerRadius = 10.dp,
-                requestSize = 400
-            )
-        }
-        Spacer(Modifier.size(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                tag.uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                color = Text3
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                title,
-                style = MaterialTheme.typography.titleLarge,
-                fontStyle = FontStyle.Italic,
-                fontWeight = FontWeight.Medium,
-                maxLines = 3
-            )
-            if (!subtitle.isNullOrBlank()) {
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Text2)
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to bg.copy(alpha = 0.30f),
+                        0.55f to bg.copy(alpha = 0.75f),
+                        1f to bg
+                    )
+                )
+        )
+
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = NavTheme.colors.textHi)
+                }
+                Spacer(Modifier.weight(1f))
+                trailing?.invoke()
             }
-            Text(
-                meta,
-                style = MaterialTheme.typography.labelMedium,
-                color = Text3,
-                modifier = Modifier.padding(top = 6.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 20.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Box(
+                    Modifier
+                        .size(140.dp)
+                        .shadow(16.dp, RoundedCornerShape(14.dp), clip = false)
+                        .clip(RoundedCornerShape(14.dp))
+                ) {
+                    ArtImage(
+                        coverId = coverArt,
+                        fallback = title,
+                        modifier = Modifier.fillMaxSize(),
+                        cornerRadius = 14.dp,
+                        requestSize = 400
+                    )
+                }
+                Spacer(Modifier.size(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        tag.uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Accent
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NavTheme.colors.textHi,
+                        maxLines = 3
+                    )
+                    if (!subtitle.isNullOrBlank()) {
+                        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Text2)
+                    }
+                    Text(
+                        meta,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Text3,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+            }
         }
     }
 }

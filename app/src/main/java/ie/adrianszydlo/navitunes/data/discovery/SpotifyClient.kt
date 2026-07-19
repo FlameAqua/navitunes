@@ -68,7 +68,7 @@ class SpotifyClient(
             .build()
         val tok = try {
             okHttp.newCall(tokenReq).execute().use { resp ->
-                val body = resp.body?.string().orEmpty()
+                val body = resp.body.string()
                 if (!resp.isSuccessful) {
                     return@withContext "Auth failed (HTTP ${resp.code}). " +
                         if (body.contains("invalid_client")) "Client ID/Secret is wrong." else body.take(120)
@@ -113,7 +113,7 @@ class SpotifyClient(
 
             val result: List<SpotifyResult>? = try {
                 okHttp.newCall(request).execute().use { resp ->
-                    val body = resp.body?.string().orEmpty()
+                    val body = resp.body.string()
                     when {
                         resp.isSuccessful -> {
                             val items = parse(type, body)
@@ -143,6 +143,73 @@ class SpotifyClient(
             if (result != null) return@withContext result
         }
         emptyList()
+    }
+
+    /**
+     * Expands an album / artist / playlist into its individual tracks (as TRACK
+     * results), so the UI can offer per-track downloads instead of one giant
+     * server-side fetch. A TRACK entity returns itself. Empty on any failure.
+     */
+    suspend fun entityTracks(entity: SpotifyResult): List<SpotifyResult> = withContext(Dispatchers.IO) {
+        if (entity.type == SpotifyType.TRACK) return@withContext listOf(entity)
+        val token = token() ?: return@withContext emptyList()
+
+        fun track(id: String, name: String, artists: List<NameDto>, cover: String?): SpotifyResult {
+            val artistLine = artists.joinToString(", ") { it.name }
+            return SpotifyResult(
+                id = id,
+                type = SpotifyType.TRACK,
+                title = name,
+                subtitle = artistLine,
+                coverUrl = cover,
+                clipboardLine = if (artistLine.isBlank()) name else "$artistLine - $name",
+                matchArtist = artistLine
+            )
+        }
+
+        runCatching {
+            when (entity.type) {
+                SpotifyType.ALBUM -> {
+                    val body = get("https://api.spotify.com/v1/albums/${entity.id}/tracks?limit=50", token)
+                        ?: return@withContext emptyList()
+                    json.decodeFromString(AlbumTracksResponse.serializer(), body).items
+                        .filter { it.id.isNotBlank() }
+                        .map { track(it.id, it.name, it.artists, entity.coverUrl) }
+                }
+                SpotifyType.PLAYLIST -> {
+                    val body = get("https://api.spotify.com/v1/playlists/${entity.id}/tracks?limit=100", token)
+                        ?: return@withContext emptyList()
+                    json.decodeFromString(PlaylistTracksResponse.serializer(), body).items
+                        .mapNotNull { it.track }
+                        .filter { it.id.isNotBlank() }
+                        .map { track(it.id, it.name, it.artists, pickImage(it.album?.images) ?: entity.coverUrl) }
+                }
+                SpotifyType.ARTIST -> {
+                    val body = get("https://api.spotify.com/v1/artists/${entity.id}/top-tracks?market=US", token)
+                        ?: return@withContext emptyList()
+                    json.decodeFromString(ArtistTopTracksResponse.serializer(), body).tracks
+                        .filter { it.id.isNotBlank() }
+                        .map { track(it.id, it.name, it.artists, pickImage(it.album?.images)) }
+                }
+            }
+        }.getOrElse {
+            Log.e(TAG, "entityTracks failed for ${entity.type}:${entity.id}", it)
+            emptyList()
+        }
+    }
+
+    /** Authenticated GET returning the body string, or null on 429/error. */
+    private fun get(url: String, token: String): String? {
+        val req = Request.Builder().url(url).header("Authorization", "Bearer $token").get().build()
+        return runCatching {
+            okHttp.newCall(req).execute().use { resp ->
+                val body = resp.body.string()
+                if (!resp.isSuccessful) {
+                    Log.w(TAG, "GET $url -> HTTP ${resp.code}: ${body.take(160)}")
+                    null
+                } else body
+            }
+        }.getOrNull()
     }
 
     private fun parse(type: SpotifyType, body: String): List<SpotifyResult> {
@@ -222,14 +289,14 @@ class SpotifyClient(
 
         try {
             okHttp.newCall(request).execute().use { resp ->
-                val body = resp.body?.string().orEmpty()
+                val body = resp.body.string()
                 if (!resp.isSuccessful) {
                     Log.w(TAG, "token HTTP ${resp.code}: ${body.take(200)}")
                     return null
                 }
                 val tok = json.decodeFromString(SpotifyTokenResponse.serializer(), body)
                 cachedToken = tok.access_token
-                tokenExpiryMs = now + tok.expires_in * 1000L
+                tokenExpiryMs = now + (tok.expires_in ?: 3600) * 1000L
                 cachedToken
             }
         } catch (t: Throwable) {
@@ -248,7 +315,7 @@ class SpotifyClient(
     @Serializable
     private data class SpotifyTokenResponse(
         val access_token: String? = null,
-        val expires_in: Int = 3600
+        val expires_in: Int? = 3600
     )
 
     @Serializable
@@ -307,4 +374,18 @@ class SpotifyClient(
 
     @Serializable private data class NameDto(val name: String = "")
     @Serializable private data class ImageDto(val url: String = "")
+
+    // Track-listing responses (album/artist/playlist expansion).
+    @Serializable
+    private data class SimpleTrackDto(
+        val id: String = "",
+        val name: String = "",
+        val artists: List<NameDto> = emptyList(),
+        val album: AlbumRefDto? = null
+    )
+
+    @Serializable private data class AlbumTracksResponse(val items: List<SimpleTrackDto> = emptyList())
+    @Serializable private data class ArtistTopTracksResponse(val tracks: List<SimpleTrackDto> = emptyList())
+    @Serializable private data class PlaylistItemDto(val track: SimpleTrackDto? = null)
+    @Serializable private data class PlaylistTracksResponse(val items: List<PlaylistItemDto> = emptyList())
 }

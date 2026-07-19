@@ -14,7 +14,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,7 +81,6 @@ private fun Fallback(letter: String) {
     Text(
         text = letter,
         color = Text4,
-        fontStyle = FontStyle.Italic,
         fontSize = 38.sp,
         style = MaterialTheme.typography.displayLarge
     )

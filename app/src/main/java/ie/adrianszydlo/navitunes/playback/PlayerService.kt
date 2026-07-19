@@ -12,12 +12,16 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.glance.appwidget.updateAll
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import ie.adrianszydlo.navitunes.AppContainer
 import ie.adrianszydlo.navitunes.MainActivity
 import ie.adrianszydlo.navitunes.NavitunesApp
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
@@ -28,6 +32,7 @@ class PlayerService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var listener: ExoPlayerListener? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -71,11 +76,38 @@ class PlayerService : MediaSessionService() {
             .build()
 
         listener = ExoPlayerListener(container).also { player.addListener(it) }
+
+        // Keep the home-screen widget in sync with playback.
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = pushWidget(player)
+            override fun onIsPlayingChanged(isPlaying: Boolean) = pushWidget(player)
+        })
+
+        // Apply the skip-silence preference live (trims silent gaps between/within tracks).
+        serviceScope.launch {
+            container.preferences.skipSilence.collect { enabled ->
+                player.skipSilenceEnabled = enabled
+            }
+        }
+    }
+
+    private fun pushWidget(player: Player) {
+        val md = player.currentMediaItem?.mediaMetadata
+        val title = md?.title?.toString().orEmpty()
+        val artist = md?.artist?.toString().orEmpty()
+        val playing = player.isPlaying
+        serviceScope.launch {
+            NavitunesApp.container().preferences.setNowPlaying(title, artist, playing)
+            runCatching {
+                ie.adrianszydlo.navitunes.ui.widget.NavitunesWidget().updateAll(applicationContext)
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
+        serviceScope.cancel()
         listener?.let { mediaSession?.player?.removeListener(it) }
         mediaSession?.run {
             player.release()

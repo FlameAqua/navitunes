@@ -1,6 +1,5 @@
 package ie.adrianszydlo.navitunes.ui.detail
 
-import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,7 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Playlist
@@ -57,7 +55,7 @@ fun PlaylistScreen(
     val container = NavitunesApp.container()
     val repo = container.libraryRepository
     val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
+    val notifier = ie.adrianszydlo.navitunes.ui.common.LocalNotifier.current
     val wifiOnly by container.preferences.wifiOnly.collectAsState(initial = false)
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -123,11 +121,11 @@ fun PlaylistScreen(
                                         }
                                             .onSuccess {
                                                 container.librarySignals.notifyChanged()
-                                                Toast.makeText(ctx, "Cleaned up", Toast.LENGTH_SHORT).show()
+                                                notifier.success("Cleaned up")
                                                 reloadTick++
                                             }
                                             .onFailure {
-                                                Toast.makeText(ctx, "Couldn't clean up: ${it.message}", Toast.LENGTH_LONG).show()
+                                                notifier.error("Couldn't clean up: ${it.message}")
                                             }
                                     }
                                 }
@@ -141,15 +139,11 @@ fun PlaylistScreen(
                             onDownload = if (songs.isNotEmpty()) {
                                 {
                                     if (!container.downloadRepository.hasStorageAccess()) {
-                                        Toast.makeText(ctx, "Grant storage access in Settings → Downloads first.", Toast.LENGTH_LONG).show()
+                                        notifier.error("Grant storage access in Settings → Downloads first.")
                                     } else {
                                         scope.launch {
                                             container.downloadRepository.enqueueAll(songs, wifiOnly)
-                                            Toast.makeText(
-                                                ctx,
-                                                "Downloading ${songs.size} song${if (songs.size == 1) "" else "s"}",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                            notifier.info("Downloading ${songs.size} song${if (songs.size == 1) "" else "s"}")
                                         }
                                     }
                                 }
@@ -203,11 +197,11 @@ fun PlaylistScreen(
                     }
                         .onSuccess {
                             container.librarySignals.notifyChanged()
-                            Toast.makeText(ctx, "Removed", Toast.LENGTH_SHORT).show()
+                            notifier.success("Removed")
                             reloadTick++
                         }
                         .onFailure {
-                            Toast.makeText(ctx, "Couldn't remove: ${it.message}", Toast.LENGTH_LONG).show()
+                            notifier.error("Couldn't remove: ${it.message}")
                         }
                 }
             },
@@ -226,14 +220,14 @@ fun PlaylistScreen(
                     runCatching { repo.deletePlaylist(id) }
                         .onSuccess {
                             container.librarySignals.notifyChanged()
-                            Toast.makeText(ctx, "Playlist deleted", Toast.LENGTH_SHORT).show()
+                            notifier.success("Playlist deleted")
                             // The playlist no longer exists — sending the user back to
                             // wherever they came from (e.g. Library) would show a stale
                             // entry until that screen reloads. Jump to Home for clarity.
                             onGoHome()
                         }
                         .onFailure {
-                            Toast.makeText(ctx, "Couldn't delete: ${it.message}", Toast.LENGTH_LONG).show()
+                            notifier.error("Couldn't delete: ${it.message}")
                         }
                 }
             },

@@ -1,6 +1,5 @@
 package ie.adrianszydlo.navitunes.ui.search
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,16 +20,20 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,13 +48,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.compose.material3.MaterialTheme
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Album
 import ie.adrianszydlo.navitunes.data.api.Artist
@@ -62,7 +66,8 @@ import ie.adrianszydlo.navitunes.data.remote.ServerDownloadStatus
 import ie.adrianszydlo.navitunes.ui.common.AlbumCard
 import ie.adrianszydlo.navitunes.ui.common.ArtistRow
 import ie.adrianszydlo.navitunes.ui.common.EmptyState
-import ie.adrianszydlo.navitunes.ui.common.Loading
+import ie.adrianszydlo.navitunes.ui.common.GridSkeleton
+import ie.adrianszydlo.navitunes.ui.common.LocalNotifier
 import ie.adrianszydlo.navitunes.ui.common.PlaylistRow
 import ie.adrianszydlo.navitunes.ui.common.ScreenTopBar
 import ie.adrianszydlo.navitunes.ui.common.SectionHead
@@ -71,7 +76,9 @@ import ie.adrianszydlo.navitunes.ui.common.rememberSongActions
 import ie.adrianszydlo.navitunes.ui.nav.LocalPlayerController
 import ie.adrianszydlo.navitunes.ui.theme.Accent
 import ie.adrianszydlo.navitunes.ui.theme.AccentOn
+import ie.adrianszydlo.navitunes.ui.theme.BorderCol
 import ie.adrianszydlo.navitunes.ui.theme.SurfaceElev
+import ie.adrianszydlo.navitunes.ui.theme.Text2
 import ie.adrianszydlo.navitunes.ui.theme.Text3
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
@@ -113,15 +120,11 @@ fun SearchScreen(
     val repo = container.libraryRepository
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
+    val recentSearches by container.preferences.recentSearches.collectAsState(initial = emptyList())
 
     val serverDownloads by container.downloadManager.items.collectAsState()
     val downloadByKey = remember(serverDownloads) { serverDownloads.associateBy { it.key } }
     val activeDownloads = serverDownloads.count { it.isActive }
-
-    // Re-run the library search when the library changes (download finished, song
-    // removed) so dedup stays correct — e.g. a removed song reappears as a Spotify
-    // result, a downloaded one drops out.
-    val signalTick by container.librarySignals.refresh.collectAsState()
 
     var lib by remember { mutableStateOf(LibraryState(loading = true)) }
     var allPlaylists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
@@ -144,12 +147,14 @@ fun SearchScreen(
     LaunchedEffect(Unit) { spotifyConfigured = container.spotifyClient.isConfigured() }
     LaunchedEffect(Unit) { loadBrowse() }
 
-    // Library search — keyed on the query text and the library-changed signal.
+    // Library search — keyed on the query text only. Deliberately NOT tied to the
+    // 10s auto-refresh signal: polling search3 (and re-hitting Spotify) while the
+    // user idles on results is wasteful and can burn the Spotify rate limit.
     LaunchedEffect(Unit) {
-        snapshotFlow { query to signalTick }
+        snapshotFlow { query }
             .debounce(450.milliseconds)
             .distinctUntilChanged()
-            .collect { (q, _) ->
+            .collect { q ->
                 val trimmed = q.trim()
                 if (trimmed.isBlank()) {
                     lib = LibraryState(bundle = SearchBundle(songs = browseSongs, playlists = allPlaylists))
@@ -209,18 +214,39 @@ fun SearchScreen(
             value = query,
             onValueChange = { query = it },
             placeholder = { Text("Songs, albums, artists, playlists…") },
-            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = Text3) },
             singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = SurfaceElev,
+                unfocusedContainerColor = SurfaceElev,
+                focusedBorderColor = Accent,
+                unfocusedBorderColor = BorderCol,
+                cursorColor = Accent
+            ),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(
+                onSearch = {
+                    if (query.isNotBlank()) scope.launch { container.preferences.addRecentSearch(query.trim()) }
+                }
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 4.dp)
         )
         Spacer(Modifier.height(8.dp))
 
+        if (query.isBlank() && recentSearches.isNotEmpty()) {
+            RecentSearches(
+                recents = recentSearches,
+                onPick = { query = it },
+                onClear = { scope.launch { container.preferences.clearRecentSearches() } }
+            )
+        }
+
         // First paint while browse loads.
         if (lib.loading && lib.bundle.isEmpty && query.isBlank()) {
-            Loading()
+            GridSkeleton()
             return@Column
         }
 
@@ -375,18 +401,67 @@ private fun SearchResults(
     }
 }
 
+@Composable
+private fun RecentSearches(
+    recents: List<String>,
+    onPick: (String) -> Unit,
+    onClear: () -> Unit
+) {
+    Column {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Outlined.History, contentDescription = null, tint = Text3, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("RECENT", style = MaterialTheme.typography.labelMedium, color = Text3, modifier = Modifier.weight(1f))
+            Text(
+                "Clear",
+                color = Accent,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.clickable(onClick = onClear)
+            )
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            recents.forEach { q ->
+                Text(
+                    q,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Text2,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(SurfaceElev)
+                        .clickable { onPick(q) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun SpotifyDiscoveryHeader(selected: SpotifyType, onSelect: (SpotifyType) -> Unit) {
     Column {
         Spacer(Modifier.height(8.dp))
         SectionHead("Not in your library", "via Spotify")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             SpotifyType.entries.forEach { type ->
                 FilterChip(
                     selected = type == selected,
                     onClick = { onSelect(type) },
-                    label = { Text(type.label) },
+                    label = { Text(type.label, maxLines = 1, softWrap = false) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = Accent,
                         selectedLabelColor = AccentOn
@@ -400,15 +475,13 @@ private fun SpotifyDiscoveryHeader(selected: SpotifyType, onSelect: (SpotifyType
 
 @Composable
 private fun SpotifyResultRow(result: SpotifyResult, status: ServerDownloadStatus?) {
-    val ctx = LocalContext.current
+    val notifier = LocalNotifier.current
     val manager = NavitunesApp.container().downloadManager
     val active = status == ServerDownloadStatus.PENDING || status == ServerDownloadStatus.DOWNLOADING
     val shape = if (result.type == SpotifyType.ARTIST) CircleShape else RoundedCornerShape(6.dp)
 
-    // Only in-flight items are locked. We deliberately don't render a persistent
-    // "downloaded" check here: a Spotify result is only visible because it's NOT
-    // in the library (dedup drops library matches), so a check would go stale the
-    // moment the song is removed. A finished item is simply re-downloadable.
+    // Tapping any result queues the whole entity (track/album/artist/playlist) for
+    // a server-side download. In-flight items are locked.
     val clickable = !active
 
     Row(
@@ -416,7 +489,7 @@ private fun SpotifyResultRow(result: SpotifyResult, status: ServerDownloadStatus
             .fillMaxWidth()
             .then(
                 if (clickable) Modifier.clickable {
-                    Toast.makeText(ctx, "Queued \"${result.title}\" for download.", Toast.LENGTH_SHORT).show()
+                    notifier.info("Queued \"${result.title}\" for download.")
                     manager.enqueue(result)
                 } else Modifier
             )
@@ -473,11 +546,13 @@ private fun SpotifyResultRow(result: SpotifyResult, status: ServerDownloadStatus
  */
 @Composable
 private fun DownloadQueueButton(count: Int, onClick: () -> Unit) {
+    // No circular clip on the outer box — that was cropping the corner badge.
+    // Extra padding gives the badge room to sit above/right of the glyph.
     Box(
         modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
+            .size(48.dp)
+            .clickable(onClick = onClick)
+            .padding(6.dp),
         contentAlignment = Alignment.Center
     ) {
         Icon(Icons.Outlined.Download, contentDescription = "Downloads")
@@ -485,7 +560,7 @@ private fun DownloadQueueButton(count: Int, onClick: () -> Unit) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 5.dp, end = 3.dp)
+                    .offset(x = 4.dp, y = (-4).dp)
                     .size(16.dp)
                     .clip(CircleShape)
                     .background(Accent),
@@ -494,9 +569,14 @@ private fun DownloadQueueButton(count: Int, onClick: () -> Unit) {
                 Text(
                     text = if (count > 9) "9+" else count.toString(),
                     color = AccentOn,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
+                    maxLines = 1,
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontSize = 9.sp,
+                        lineHeight = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+                    )
                 )
             }
         }

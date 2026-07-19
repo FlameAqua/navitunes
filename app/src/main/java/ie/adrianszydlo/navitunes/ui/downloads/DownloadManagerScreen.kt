@@ -3,7 +3,6 @@ package ie.adrianszydlo.navitunes.ui.downloads
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,7 +35,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,9 +76,13 @@ fun DownloadManagerScreen(onBack: () -> Unit) {
             Text(
                 "Downloads",
                 style = MaterialTheme.typography.displayMedium,
-                fontStyle = FontStyle.Italic,
                 modifier = Modifier.weight(1f)
             )
+            if (items.any { it.isActive }) {
+                TextButton(onClick = { manager.cancelServerJob() }) {
+                    Text("Stop server", color = Danger)
+                }
+            }
             if (hasFinished) {
                 TextButton(onClick = { manager.clearFinished() }) {
                     Text("Clear", color = Accent)
@@ -164,27 +167,36 @@ private fun DownloadRow(dl: ServerDownload) {
             )
         }
         Spacer(Modifier.width(8.dp))
-        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-            when (dl.status) {
-                ServerDownloadStatus.PENDING, ServerDownloadStatus.DOWNLOADING ->
-                    CircularProgressIndicator(
-                        color = Accent,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(18.dp)
-                    )
-                ServerDownloadStatus.DONE ->
-                    Icon(Icons.Outlined.CheckCircle, contentDescription = "Done", tint = Success, modifier = Modifier.size(20.dp))
-                ServerDownloadStatus.FAILED ->
-                    Icon(
-                        Icons.Outlined.Refresh,
-                        contentDescription = "Retry",
-                        tint = Accent,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(RoundedCornerShape(50))
-                            .clickable { container.downloadManager.retry(dl.key) }
-                    )
+        when (dl.status) {
+            ServerDownloadStatus.PENDING, ServerDownloadStatus.DOWNLOADING -> {
+                CircularProgressIndicator(
+                    color = Accent,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = "Cancel",
+                    tint = Text3,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(50))
+                        .clickable { container.downloadManager.cancel(dl.key) }
+                )
             }
+            ServerDownloadStatus.DONE ->
+                Icon(Icons.Outlined.CheckCircle, contentDescription = "Done", tint = Success, modifier = Modifier.size(20.dp))
+            ServerDownloadStatus.FAILED ->
+                Icon(
+                    Icons.Outlined.Refresh,
+                    contentDescription = "Retry",
+                    tint = Accent,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(50))
+                        .clickable { container.downloadManager.retry(dl.key) }
+                )
         }
     }
 }

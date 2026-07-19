@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Native window background (dark). Compose drives all in-app colours;
+         this only paints the pre-composition frame in dark mode. -->
+    <color name="bg">#0e0a08</color>
+</resources>

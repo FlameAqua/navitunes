@@ -64,9 +64,44 @@ class LibraryRepository(private val api: ApiClient) {
         api.call("getStarred2.view").starred2 ?: Starred()
     }
 
+    /** All genres in the library, most-used first. */
+    suspend fun genres(): List<ie.adrianszydlo.navitunes.data.api.GenreEntry> = withContext(Dispatchers.IO) {
+        api.call("getGenres.view").genres?.genre.orEmpty()
+            .filter { it.value.isNotBlank() }
+            .sortedByDescending { it.songCount }
+    }
+
+    /** Songs tagged with [genre]. */
+    suspend fun songsByGenre(genre: String, count: Int = 300): List<Song> = withContext(Dispatchers.IO) {
+        api.call("getSongsByGenre.view", mapOf("genre" to genre, "count" to count.toString()))
+            .songsByGenre?.song.orEmpty()
+    }
+
     /** Full metadata for one song (getSong.view returns more fields than list endpoints). */
     suspend fun song(id: String): Song? = withContext(Dispatchers.IO) {
         runCatching { api.call("getSong.view", mapOf("id" to id)).song }.getOrNull()
+    }
+
+    /**
+     * Synced/plain lyrics for a song via the OpenSubsonic getLyricsBySongId endpoint.
+     * Returns an empty list if the server doesn't support it or has no lyrics.
+     */
+    suspend fun lyricsBySongId(id: String): List<ie.adrianszydlo.navitunes.data.api.StructuredLyrics> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                api.call("getLyricsBySongId.view", mapOf("id" to id)).lyricsList?.structuredLyrics
+            }.getOrNull().orEmpty()
+        }
+
+    /** Plain lyrics via the classic getLyrics endpoint (artist + title lookup). */
+    suspend fun plainLyrics(artist: String?, title: String?): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val params = buildMap {
+                if (!artist.isNullOrBlank()) put("artist", artist)
+                if (!title.isNullOrBlank()) put("title", title)
+            }
+            api.call("getLyrics.view", params).lyrics?.value?.takeIf { it.isNotBlank() }
+        }.getOrNull()
     }
 
     suspend fun search(query: String): SearchResult = withContext(Dispatchers.IO) {

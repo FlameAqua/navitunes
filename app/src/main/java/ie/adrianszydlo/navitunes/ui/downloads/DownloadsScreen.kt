@@ -32,7 +32,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -89,7 +88,6 @@ fun DownloadsScreen(
             Text(
                 "Downloads",
                 style = MaterialTheme.typography.displayMedium,
-                fontStyle = FontStyle.Italic,
                 modifier = Modifier.weight(1f)
             )
             if (downloads.isNotEmpty()) {
@@ -220,6 +218,7 @@ private fun statusLabel(status: String): String = when (status) {
     else -> status
 }
 
+@Composable
 private fun statusColor(status: String) = when (status) {
     DownloadRepository.STATUS_COMPLETED -> Success
     DownloadRepository.STATUS_FAILED -> Danger

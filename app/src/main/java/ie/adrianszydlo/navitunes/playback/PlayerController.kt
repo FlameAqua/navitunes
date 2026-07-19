@@ -15,6 +15,7 @@ import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.data.repo.PlaybackRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -61,6 +62,14 @@ class PlayerController(private val appContext: Context) {
     private val _starred = MutableStateFlow(false)
     val starred: StateFlow<Boolean> = _starred.asStateFlow()
 
+    private val _speed = MutableStateFlow(1f)
+    val speed: StateFlow<Float> = _speed.asStateFlow()
+
+    /** Epoch-ms at which the sleep timer will pause playback, or null if none is set. */
+    private val _sleepEndMs = MutableStateFlow<Long?>(null)
+    val sleepEndMs: StateFlow<Long?> = _sleepEndMs.asStateFlow()
+    private var sleepJob: Job? = null
+
     fun bind() {
         if (controller != null) return
         val token = SessionToken(appContext, ComponentName(appContext, PlayerService::class.java))
@@ -96,11 +105,16 @@ class PlayerController(private val appContext: Context) {
             override fun onRepeatModeChanged(repeatMode: Int) {
                 _repeat.value = repeatMode
             }
+
+            override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+                _speed.value = playbackParameters.speed
+            }
         })
         // Initial snapshot
         _isPlaying.value = c.isPlaying
         _shuffle.value = c.shuffleModeEnabled
         _repeat.value = c.repeatMode
+        _speed.value = c.playbackParameters.speed
         updateFromMediaItem(c.currentMediaItem)
     }
 
@@ -119,6 +133,14 @@ class PlayerController(private val appContext: Context) {
             val profileId = container.profileStore.activeId.value ?: return
             scope.launch {
                 runCatching { container.recentlyPlayedStore.push(profileId, song) }
+            }
+            // Refresh the authoritative favorite state from the server — the queued
+            // Song's `starred` field can be stale (list endpoints omit it, or it was
+            // favorited elsewhere), so the heart reflects reality on re-entry.
+            val id = song.id
+            scope.launch {
+                val fresh = runCatching { container.libraryRepository.song(id)?.starred }.getOrNull()
+                if (_currentItem.value?.id == id) _starred.value = !fresh.isNullOrBlank()
             }
         }
     }
@@ -167,6 +189,64 @@ class PlayerController(private val appContext: Context) {
         }
         c.addMediaItem(song.toMediaItem())
         _queue.value = _queue.value + song
+    }
+
+    /** Insert several songs immediately after the current track. */
+    fun playNext(songs: List<Song>) {
+        val c = controller ?: return
+        if (songs.isEmpty()) return
+        if (c.mediaItemCount == 0) { play(songs, 0); return }
+        val insertAt = c.currentMediaItemIndex + 1
+        c.addMediaItems(insertAt, songs.map { it.toMediaItem() })
+        _queue.value = _queue.value.toMutableList().also { it.addAll(insertAt, songs) }
+        if (!c.isPlaying) c.play()
+    }
+
+    /** Append several songs to the end of the queue. */
+    fun addToQueue(songs: List<Song>) {
+        val c = controller ?: return
+        if (songs.isEmpty()) return
+        if (c.mediaItemCount == 0) { play(songs, 0); return }
+        c.addMediaItems(songs.map { it.toMediaItem() })
+        _queue.value = _queue.value + songs
+    }
+
+    /** Remove the queue entry at [index]. */
+    fun removeFromQueueAt(index: Int) {
+        val c = controller ?: return
+        if (index !in 0 until c.mediaItemCount) return
+        c.removeMediaItem(index)
+        _queue.value = _queue.value.toMutableList().also { if (index in it.indices) it.removeAt(index) }
+        _currentIndex.value = c.currentMediaItemIndex
+        if (c.mediaItemCount == 0) {
+            _currentItem.value = null
+            _currentIndex.value = -1
+            _isPlaying.value = false
+        }
+    }
+
+    /** Sets playback speed (1.0 = normal). Pitch is preserved by ExoPlayer. */
+    fun setSpeed(speed: Float) {
+        controller?.setPlaybackSpeed(speed)
+        _speed.value = speed
+    }
+
+    /** Pause playback after [minutes] minutes. Replaces any running timer. */
+    fun startSleepTimer(minutes: Int) {
+        cancelSleepTimer()
+        val durationMs = minutes * 60_000L
+        _sleepEndMs.value = System.currentTimeMillis() + durationMs
+        sleepJob = scope.launch {
+            delay(durationMs.milliseconds)
+            controller?.pause()
+            _sleepEndMs.value = null
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepJob?.cancel()
+        sleepJob = null
+        _sleepEndMs.value = null
     }
 
     fun togglePlay() {

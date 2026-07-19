@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.milliseconds
 
 enum class ServerDownloadStatus { PENDING, DOWNLOADING, DONE, FAILED }
 
@@ -113,9 +114,35 @@ class DownloadManager(
         _items.update { list -> list.filter { it.isActive } }
     }
 
+    /**
+     * Force the server to stop whatever it's currently downloading — even a job this
+     * app instance no longer tracks (e.g. a playlist that got orphaned across an app
+     * restart and is now wedging the single-flight lock, causing "server busy").
+     */
+    fun cancelServerJob() {
+        scope.launch { runCatching { service.requestCancel() } }
+    }
+
     /** Remove a single finished entry. */
     fun remove(key: String) {
         _items.update { list -> list.filterNot { it.key == key && !it.isActive } }
+    }
+
+    /**
+     * Cancel a queued or in-flight download. Drops it from the list and — if the
+     * server is actively downloading it — asks the server to kill the spotdl process.
+     * The in-flight request then returns to a no-op (the item is already gone, so it
+     * isn't retried).
+     */
+    fun cancel(key: String) {
+        val item = _items.value.firstOrNull { it.key == key } ?: return
+        val wasDownloading = item.status == ServerDownloadStatus.DOWNLOADING
+        _items.update { list -> list.filterNot { it.key == key } }
+        if (wasDownloading) {
+            scope.launch { runCatching { service.requestCancel() } }
+        }
+        wake.trySend(Unit)
+        Log.i(TAG, "cancelled $key (wasDownloading=$wasDownloading)")
     }
 
     /** Manually re-queue a failed item, resetting its retry budget. */
@@ -152,7 +179,7 @@ class DownloadManager(
                 if (soonest == null) {
                     wake.receive()
                 } else {
-                    withTimeoutOrNull((soonest - now).coerceAtLeast(0L)) { wake.receive() }
+                    withTimeoutOrNull((soonest - now).coerceAtLeast(0L).milliseconds) { wake.receive() }
                 }
                 continue
             }
@@ -175,14 +202,35 @@ class DownloadManager(
 
         when (val outcome = service.requestDownload("${item.type} ${item.spotifyId}")) {
             DownloadService.Outcome.Success -> {
+                // The server now accepts the job instantly (202) and downloads in the
+                // background, so "success" only means "accepted". Wait for the server
+                // to actually finish (poll its busy flag) before calling it done — and
+                // keep the worker here so the next item doesn't start mid-download.
+                awaitServerIdle(key)
+                // If the item was cancelled meanwhile it's gone; patch no-ops.
                 patch(key) { it.copy(status = ServerDownloadStatus.DONE, error = null) }
-                librarySignals?.notifyChanged()   // nudge screens to pick up the new song
+                librarySignals?.notifyChanged()   // nudge screens to pick up the new song(s)
                 Log.i(TAG, "done $key")
             }
             DownloadService.Outcome.Busy ->
                 onRequestFailed(item, "Server busy")
             is DownloadService.Outcome.Failure ->
                 onRequestFailed(item, outcome.message)
+        }
+    }
+
+    /**
+     * Blocks until the server reports no active download (or a safety cap elapses).
+     * Stops early if the item was cancelled/removed. Degrades to a near-instant
+     * return if the server doesn't expose a `downloading` flag.
+     */
+    private suspend fun awaitServerIdle(key: String) {
+        val deadline = System.currentTimeMillis() + MAX_JOB_MS
+        delay(1_500.milliseconds)   // give the server a moment to flip 'downloading' on
+        while (System.currentTimeMillis() < deadline) {
+            if (_items.value.none { it.key == key }) return    // cancelled/removed
+            if (!service.isDownloading()) return
+            delay(4_000.milliseconds)
         }
     }
 
@@ -248,7 +296,7 @@ class DownloadManager(
         while (true) {
             if (_items.value.any { it.isActive }) {
                 _serverOnline.value = service.isAlive()
-                delay(HEALTH_POLL_MS)
+                delay(HEALTH_POLL_MS.milliseconds)
             } else {
                 _serverOnline.value = null
                 activeKeys.first { it.isNotEmpty() } // suspend cheaply until work returns
@@ -262,5 +310,6 @@ class DownloadManager(
         const val MAX_OFFLINE_WAITS = 40        // ~40 × 8s ≈ 5 min of patiently waiting
         const val OFFLINE_BACKOFF_MS = 8_000L
         const val HEALTH_POLL_MS = 10_000L
+        const val MAX_JOB_MS = 30 * 60 * 1000L  // safety cap while waiting for a server download
     }
 }

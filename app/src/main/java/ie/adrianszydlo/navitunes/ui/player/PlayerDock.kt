@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.Icon
@@ -30,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.playback.PlayerController
 import ie.adrianszydlo.navitunes.ui.common.ArtImage
 import ie.adrianszydlo.navitunes.ui.theme.Accent
@@ -146,7 +149,7 @@ private fun BubblePlayer(
                     .background(if (overTrash) Danger else Color.Black.copy(alpha = 0.55f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Color.White)
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.dismiss), tint = Color.White)
             }
         }
 
@@ -195,7 +198,8 @@ private fun BubblePlayer(
                 fallback = s.title,
                 modifier = Modifier.fillMaxSize(),
                 cornerRadius = bubbleDp / 2,
-                requestSize = 200
+                requestSize = 200,
+                fallbackIcon = if (s.id.startsWith("radio:")) Icons.Filled.Radio else null
             )
             if (!playing) {
                 Box(

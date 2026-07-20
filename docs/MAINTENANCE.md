@@ -15,8 +15,9 @@
 | spotdl | `/usr/local/bin/spotdl` | Downloads into `/music/Uploads/{album-artist}/{album}/…` |
 | beets | `/opt/beets` (`BEETSDIR`), `library.db` | Imports/organises/tags `/music/Uploads` → `/music/<Artist>/<Album>/` |
 | Fix job | `/opt/beets/fix-metadata.sh` | The nightly pipeline (below) |
-| Playlist repointer | `/opt/beets/fix-playlist-paths.sh` | Keeps `.m3u8` paths valid after beets moves files |
-| Playlists | `/music/Uploads/*.m3u8` | m3u-backed; Navidrome auto-imports them |
+| Artist normaliser | `/opt/beets/normalize-artists.sh` (+ `split-artists.py`) | Fixes spotdl's "Various Artists" misfiling + splits `A/B` into multi-valued tags |
+| Playlist sync | `/opt/beets/sync-playlists-api.sh` | Rebuilds Navidrome playlists from the `.m3u8` files **via the Subsonic API** (resolves each entry to a song ID). Replaced the old path-repointer. |
+| Playlists | `/music/Uploads/*.m3u8` | Track lists the sync **reads**; Navidrome's own m3u import is **not** relied on (see §5.1) |
 | Secrets | `/opt/beets/.nd-creds` (chmod 600) | `ND_USER` / `ND_PASS`. **Never commit.** |
 
 **Cron**
@@ -36,8 +37,12 @@
 3. *(deep)* **genres** — `beet lastgenre -A` (fills gaps only; no `-f`)
 4. **write** — flush tags to files
 5. **duplicates** — `beet duplicates` → **log only**, never auto-deletes
-6. **repoint playlists** — rewrite `.m3u8` paths to files' current locations
+6. **normalise artists** — `normalize-artists.sh`: single-artist "Various Artists" → real artist;
+   multi-artist `A/B` → multi-valued `ARTISTS`/`TPE1` tags + primary album-artist (see §5.9)
 7. **rescan** — Navidrome `startScan?fullScan=true` (purges phantom records)
+8. **sync playlists** — `sync-playlists-api.sh` rebuilds each playlist through the Subsonic API
+   from resolved song IDs. **Runs last**, after the rescan, because it needs the scanned
+   `media_file` rows to resolve IDs (see §5.1).
 
 Trigger manually, or from the app (Settings → Maintenance → *Fix metadata now*, which shows live stage progress and disables the button while running).
 
@@ -86,19 +91,26 @@ The repointer also keeps a one-time `<playlist>.m3u8.orig` next to each playlist
 ## 5. Troubleshooting
 
 ### 5.1 A playlist lost most of its songs
-**Cause.** Playlists are m3u files with paths relative to `/music/Uploads`. When beets *moves* a track out of `Uploads`, that path dies; the next Navidrome scan re-imports the m3u and drops every entry it can't resolve.
+**Cause (historical + current).** Navidrome **0.54+ stores `media_file.path` relative to the library
+root** (`Artist/Album/track.mp3`, no `/music/` prefix) and its built-in m3u importer will not
+reliably match paths — the old repointer wrote absolute `/music/…` paths and Navidrome matched almost
+none of them (confirmed: 1 of 137). So we **no longer rely on Navidrome's m3u import at all.**
 
-**Fix.** The repointer (step 6) prevents this. To repair now:
+**How it works now.** `sync-playlists-api.sh` (pipeline step 8, after the rescan) reads each `.m3u8`,
+resolves every entry to a Navidrome song ID **straight from `navidrome.db`** (by library-relative
+path, then by title), and rebuilds the playlist via the Subsonic API
+(`createPlaylist?playlistId=…&songId=…`). This is immune to Navidrome's path-matching and to file
+moves. The `.m3u8` files are just track lists it consumes.
+
+**Fix / repair now:**
 ```bash
-export BEETSDIR=/opt/beets
-for m in /music/Uploads/*.m3u8; do /opt/beets/fix-playlist-paths.sh "$m"; done
-/opt/beets/fix-metadata.sh
+/opt/beets/sync-playlists-api.sh          # rebuild all playlists from their .m3u8 files
 ```
-Healthy output: `kept=N fixed=M missed=0`. Any `[MISS]` means that track couldn't be located — check it by hand:
-```bash
-beet ls -p title:"Some Title"
-```
-Originals are preserved as `<playlist>.m3u8.orig`.
+Healthy output: `updated: <name> (N tracks)`. If a playlist resolves to 0, check that the tracks are
+actually in the library (`beet ls title:"Some Title"`) and that the scan has run.
+
+> The old `fix-playlist-paths.sh` repointer and the `<playlist>.m3u8.orig` backups are **retired**.
+> Do not reintroduce path-rewriting — it fights Navidrome's relative-path storage.
 
 ### 5.2 `/music/Uploads` isn't being organised
 Check the skip log first:
@@ -166,6 +178,34 @@ ls -l /tmp/beets-fix.lock                                # flock guard
 pm2 restart upload-server
 ```
 The app disables the button while `running` is true, so a 409 means a job really is in flight.
+
+### 5.9 Songs show under "Various Artists", or a collaboration shows as one artist
+**Cause.** spotdl tags many tracks with `albumartist = Various Artists` + `compilation = 1` (even
+single-artist singles), and joins multiple artists into one string with `/`
+(`Samuel Prince/Adrian Forsén`). Navidrome then files them under Various Artists and treats the joined
+string as a single artist.
+
+**Fix (automated in pipeline step 6, `normalize-artists.sh`):**
+- Single-artist VA tracks → `beet modify albumartist=<artist> comp=0`.
+- Multi-artist `A/B` → `split-artists.py` (mutagen) writes multi-valued `TPE1` + `TXXX:ARTISTS`
+  and sets `TPE2` (album-artist) to the **primary** (first) artist, so the album is owned by a real
+  artist, not a phantom "A, B, C" combined entity. Clears `TCMP`. Idempotent.
+
+Run manually: `/opt/beets/normalize-artists.sh && <rescan>`.
+
+**Bogus compilation dumps** (spotdl downloads a whole Spotify compilation — e.g. 200 tracks titled
+"Crank That (Soulja Boy)" — stamps `album=` that name on all of them, and **beets groups the lot into
+one album and forces a single album-artist onto every track**; `beet write` then reasserts that
+album-artist on every run, clobbering any per-file fix). `normalize-artists.sh` **step 3** detects an
+album with **≥4 distinct `artist` values** (not album-artist — beets forces that to one, so it's
+useless as a signal) and rebuilds each track from its intact `artist`: `albumartist=artist`,
+`album=title`, `comp=0`. This un-groups the album in beets so `write` stops reasserting. Real albums
+have 1–3 distinct artists → untouched. Idempotent. **Caveat:** a genuine 4+-artist compilation you
+*want* kept would also be split — whitelist it.
+
+> The normaliser does **not** try to reconstruct *correct* album names, only to stop bogus grouping.
+> A version/remix descriptor leaking into the artist list is separate source pollution — inspect raw
+> tags (`ID3(path).getall('TALB'/'TXXX:ARTISTS')`) and fix by hand.
 
 ---
 

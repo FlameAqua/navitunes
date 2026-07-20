@@ -19,12 +19,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.ui.common.ArtImage
@@ -60,10 +62,10 @@ fun SongInfoDialog(song: Song, onDismiss: () -> Unit) {
         if (full.duration > 0) add("Duration" to formatDuration(full.duration))
         formatStr(full.suffix, full.contentType, full.bitRate)?.let { add("Format" to it) }
         full.size?.takeIf { it > 0 }?.let { add("Size" to formatBytes(it)) }
-        full.playCount?.takeIf { it > 0 }?.let { add("Play count" to it.toString()) }
-        add("Offline" to if (downloaded) "Downloaded" else "Streaming")
-        full.comment?.takeIf { it.isNotBlank() }?.let { add("Comment" to it) }
-        full.musicBrainzId?.takeIf { it.isNotBlank() }?.let { add("MusicBrainz ID" to it) }
+        full.playCount?.takeIf { it > 0 }?.let { add(stringResource(R.string.meta_play_count) to it.toString()) }
+        add("Offline" to if (downloaded) "Downloaded" else stringResource(R.string.streaming))
+        full.comment?.takeIf { it.isNotBlank() }?.let { add(stringResource(R.string.playlist_comment) to it) }
+        full.musicBrainzId?.takeIf { it.isNotBlank() }?.let { add(stringResource(R.string.meta_musicbrainz_id) to it) }
         full.path?.takeIf { it.isNotBlank() }?.let { add("Path" to it) }
     }
 
@@ -112,7 +114,7 @@ private fun InfoRow(label: String, value: String) {
         Text(
             value,
             style = MaterialTheme.typography.bodyMedium.copy(
-                fontFamily = if (label == "MusicBrainz ID" || label == "Path") FontFamily.Monospace else FontFamily.Default
+                fontFamily = if (label == stringResource(R.string.meta_musicbrainz_id) || label == "Path") FontFamily.Monospace else FontFamily.Default
             ),
             color = Text2,
             fontWeight = FontWeight.Medium,

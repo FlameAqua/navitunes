@@ -1,9 +1,9 @@
-# Navitunes — project context for Claude
+# Navitunes — project context for Codex
 
 Native **Android** (Kotlin + Jetpack Compose, Material3) client for a self-hosted
 **Navidrome / Subsonic** server, plus a companion homelab **upload server** (spotdl
 downloads, uploads, beets metadata). Package root `ie.adrianszydlo.navitunes`.
-Current release **v0.7.0**.
+Current release **v0.6.0**.
 
 **Full architecture, endpoints, and server-side details:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Read it before non-trivial work — it covers the theming token trick, the server-download

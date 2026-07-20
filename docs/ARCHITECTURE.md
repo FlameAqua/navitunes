@@ -6,7 +6,7 @@
 > don't have (Spotify-sourced downloads via spotdl, uploads, and beets metadata fixing).
 >
 > Package root: `ie.adrianszydlo.navitunes` · applicationId `ie.adrianszydlo.navitunes`
-> (debug: `.debug`, versionName suffix `-dev`). Current release: **v0.6.0** (versionCode 6).
+> (debug: `.debug`, versionName suffix `-dev`). Current release: **v0.7.0** (versionCode 7).
 >
 > **Server upkeep, troubleshooting and recovery commands live in
 > [MAINTENANCE.md](MAINTENANCE.md)** — read that before touching beets/spotdl/playlists.
@@ -120,6 +120,32 @@ ie.adrianszydlo.navitunes
   without closing the queue.
 - **Live fix progress** — Settings → Maintenance shows the server job's stage/step, survives leaving
   the screen (server owns the state) and disables the button while running (§2.10).
+
+### 2.3.2 What V0.7 added
+
+- **Media notification / output switcher** — prev · ±10s · play/pause · next · **favourite**, with the
+  heart synced **both ways** between the app and the notification (the service is the single writer;
+  state broadcasts back over `setSessionExtras` → `MediaController.Listener.onExtrasChanged`). Prev/Next
+  sit in the **primary** back/forward slots so they survive the compact strip. Live radio emits no
+  custom buttons (no seek/favourite). Constants: `ACTION_TOGGLE_FAVORITE`, `EXTRA_IS_FAVORITE`.
+- **Endless Song Radio** — `PlayerController.playSongRadio(seed, initial)` remembers the seed and
+  auto-appends more similar songs when playback comes within 2 tracks of the end. Also reachable from
+  a track's long-press menu and the player's *Go to…* menu. Shared builder `ui/radio/SongRadio.kt`.
+- **Sleep timer** is absolute (a single wall-clock deadline, unaffected by track changes) and **fades
+  the gain out** over ~4s before pausing, then restores it.
+- **App-level volume** (`AppPreferences.volume`, applied via `MediaController.volume`) lets the user
+  go below the Bluetooth absolute-volume floor. Lives in the player's Playback-settings panel.
+- **Now-playing indicator everywhere** — `LocalNowPlaying` (id + playing) is collected once in
+  `RootNav` and read by `SongRow` by default, so album/playlist/library/search all mark the current
+  track with no per-screen wiring.
+- **Player controls reorg** — leftmost **Go to…** menu (album/artist/Song Radio); rightmost
+  **Playback settings** panel (speed, sleep timer, **skip silence** — moved out of app Settings —
+  and volume). Album art toggles the lyrics view; tapping a synced lyric line seeks to it.
+- **Radio glyph** placeholder (not a letter) for streams in the mini/full/bubble players.
+- **Full string extraction underway** — ~200 UI strings moved to `res/values/strings.xml` (incl.
+  `<plurals>`); groundwork for localisation (e.g. a future Polish `values-pl`). Some screens still
+  hold inline literals.
+- **Search** opens focused with the keyboard raised.
 
 ### 2.4 Theming (the one non-obvious pattern)
 
@@ -282,16 +308,20 @@ Everything below runs on a single Proxmox LXC; the app only talks HTTP to it.
 - **beets** (`/opt/beets`, via pipx) + **`fix-metadata.sh [--deep]`** — the metadata pipeline
   invoked by `/fix` and by cron (nightly quick, weekly `--deep`):
   `import` → *(deep: `mbsync` → `lastgenre`)* → `write` → `duplicates` (log only) →
-  **repoint playlists** → Navidrome `startScan?fullScan=true`.
+  **normalise artists** → Navidrome `startScan?fullScan=true` → **sync playlists (API)**.
   Config in `/opt/beets/config.yaml`; `import.move: yes`, `quiet_fallback: asis`.
 
-- **`fix-playlist-paths.sh`** — the piece that keeps playlists alive. Playlists are m3u files in
-  `/music/Uploads` whose paths are **relative to that folder**; beets then *moves* the audio out of
-  `Uploads`, killing those paths, and the next Navidrome scan silently drops every entry it can't
-  resolve. This script rewrites each entry to the track's current absolute path (beets DB lookup,
-  then filesystem fallback), is idempotent, and preserves a one-time `<playlist>.m3u8.orig`.
-  It runs as a pipeline step *after* the move and *before* the rescan — that ordering is the
-  whole point. See MAINTENANCE.md §5.1.
+- **`normalize-artists.sh` (+ `split-artists.py`)** — fixes spotdl's artist tagging: single-artist
+  "Various Artists" → real artist; multi-artist `A/B` → multi-valued `ARTISTS`/`TPE1` tags with the
+  primary artist as album-artist. See MAINTENANCE.md §5.9.
+
+- **`sync-playlists-api.sh`** — the piece that keeps playlists alive, and it runs **last, after the
+  rescan**. Navidrome **0.54+ stores paths relative to the library root** and its built-in m3u
+  importer won't match reliably, so instead of rewriting m3u paths we read each `.m3u8`, resolve every
+  entry to a Navidrome song ID from `navidrome.db` (library-relative path, then title), and rebuild
+  the playlist through the Subsonic API (`createPlaylist?playlistId=…&songId=…`). Immune to Navidrome's
+  path-matching and to file moves. **Replaced the retired `fix-playlist-paths.sh` repointer.**
+  See MAINTENANCE.md §5.1.
   **Hard-won lessons (see genre saga):**
   - beets only acts on files that are **in `library.db`**. If imports have been skipping
     (quiet mode drops uncertain matches; the old `-i` incremental flag skipped whole dirs),

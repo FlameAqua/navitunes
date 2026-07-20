@@ -3,6 +3,7 @@ package ie.adrianszydlo.navitunes.data.prefs
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +22,7 @@ class AppPreferences(private val context: Context) {
     private val keyThemeMode = stringPreferencesKey("theme_mode")
     private val keyRecentSearches = stringPreferencesKey("recent_searches")
     private val keySkipSilence = booleanPreferencesKey("skip_silence")
+    private val keyVolume = floatPreferencesKey("player_volume")
     private val keyNpTitle = stringPreferencesKey("now_playing_title")
     private val keyNpArtist = stringPreferencesKey("now_playing_artist")
     private val keyNpPlaying = booleanPreferencesKey("now_playing_playing")
@@ -32,6 +34,9 @@ class AppPreferences(private val context: Context) {
 
     /** ExoPlayer skip-silence: trims silent stretches from playback. */
     val skipSilence: Flow<Boolean> = context.dataStore.data.map { it[keySkipSilence] ?: false }
+
+    /** App-level output gain (0.0–1.0). Lets the user go below the Bluetooth absolute-volume floor. */
+    val volume: Flow<Float> = context.dataStore.data.map { (it[keyVolume] ?: 1f).coerceIn(0f, 1f) }
 
     /** Most-recent search queries, newest first (max 8). */
     val recentSearches: Flow<List<String>> = context.dataStore.data.map { prefs ->
@@ -61,6 +66,8 @@ class AppPreferences(private val context: Context) {
     suspend fun setThemeMode(token: String) = context.dataStore.edit { it[keyThemeMode] = token }
 
     suspend fun setSkipSilence(v: Boolean) = context.dataStore.edit { it[keySkipSilence] = v }
+
+    suspend fun setVolume(v: Float) = context.dataStore.edit { it[keyVolume] = v.coerceIn(0f, 1f) }
 
     suspend fun addRecentSearch(query: String) {
         val q = query.trim()

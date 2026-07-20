@@ -37,6 +37,8 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.compose.material3.MaterialTheme
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Album
 import ie.adrianszydlo.navitunes.data.api.Artist
@@ -99,7 +103,7 @@ private data class SearchBundle(
 /** Library-search state (Spotify discovery is tracked separately). */
 private data class LibraryState(
     val loading: Boolean = false,
-    val error: String? = null,
+    val errorRes: Int? = null,
     val bundle: SearchBundle = SearchBundle()
 )
 
@@ -122,6 +126,12 @@ fun SearchScreen(
     var query by remember { mutableStateOf("") }
     val recentSearches by container.preferences.recentSearches.collectAsState(initial = emptyList())
 
+    // Open the tab ready to type: focus the field and raise the keyboard immediately.
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        runCatching { searchFocus.requestFocus() }
+    }
+
     val serverDownloads by container.downloadManager.items.collectAsState()
     val downloadByKey = remember(serverDownloads) { serverDownloads.associateBy { it.key } }
     val activeDownloads = serverDownloads.count { it.isActive }
@@ -136,7 +146,7 @@ fun SearchScreen(
     var spotifyLoading by remember { mutableStateOf(false) }
 
     suspend fun loadBrowse() {
-        lib = lib.copy(loading = true, error = null)
+        lib = lib.copy(loading = true, errorRes = null)
         val playlists = runCatching { repo.allPlaylists() }.getOrDefault(emptyList())
         val songs = runCatching { repo.randomSongs(200) }.getOrDefault(emptyList())
         allPlaylists = playlists
@@ -160,13 +170,13 @@ fun SearchScreen(
                     lib = LibraryState(bundle = SearchBundle(songs = browseSongs, playlists = allPlaylists))
                     return@collect
                 }
-                lib = lib.copy(loading = true, error = null)
+                lib = lib.copy(loading = true, errorRes = null)
                 val server = runCatching { repo.search(trimmed) }.getOrNull()
                 val matchedPlaylists = allPlaylists.filter { it.name.contains(trimmed, ignoreCase = true) }
                 lib = if (server == null) {
                     LibraryState(
                         loading = false,
-                        error = "Couldn't reach your library.",
+                        errorRes = R.string.home_unreachable,
                         bundle = SearchBundle(playlists = matchedPlaylists)
                     )
                 } else {
@@ -213,7 +223,7 @@ fun SearchScreen(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Songs, albums, artists, playlists…") },
+            placeholder = { Text(stringResource(R.string.search_hint_full)) },
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = Text3) },
             singleLine = true,
             shape = RoundedCornerShape(16.dp),
@@ -233,6 +243,7 @@ fun SearchScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 4.dp)
+                .focusRequester(searchFocus)
         )
         Spacer(Modifier.height(8.dp))
 
@@ -291,7 +302,7 @@ private fun SearchResults(
         dedupeSpotify(spotifyResults, spotifyType, bundle)
     }
 
-    val libraryEmptyNoError = !lib.loading && lib.error == null && bundle.isEmpty
+    val libraryEmptyNoError = !lib.loading && lib.errorRes == null && bundle.isEmpty
     val nothingAtAll = libraryEmptyNoError &&
         (!showSpotify || (!spotifyLoading && deduped.isEmpty()))
 
@@ -301,11 +312,11 @@ private fun SearchResults(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        if (lib.error != null) {
+        if (lib.errorRes != null) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {
-                    Text(lib.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                    Text("Retry", color = Accent, modifier = Modifier.clickable(onClick = onRetry).padding(vertical = 4.dp))
+                    Text(stringResource(lib.errorRes), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.retry), color = Accent, modifier = Modifier.clickable(onClick = onRetry).padding(vertical = 4.dp))
                 }
             }
         }
@@ -338,7 +349,7 @@ private fun SearchResults(
         }
         if (bundle.songs.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Spacer(Modifier.height(8.dp)); SectionHead(if (query.isBlank()) "All songs" else "Songs")
+                Spacer(Modifier.height(8.dp)); SectionHead(if (query.isBlank()) stringResource(R.string.lib_all_songs) else "Songs")
             }
             bundle.songs.forEachIndexed { idx, song ->
                 item(key = "sg-${song.id}-$idx", span = { GridItemSpan(maxLineSpan) }) {
@@ -388,12 +399,12 @@ private fun SearchResults(
         if (nothingAtAll) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 if (query.isBlank()) {
-                    EmptyState(title = "Library is empty", body = "Add music to your Navidrome server.")
+                    EmptyState(title = stringResource(R.string.lib_empty), body = stringResource(R.string.lib_empty_body))
                 } else {
                     EmptyState(
-                        title = "Nothing found",
-                        body = if (spotifyConfigured) "Try a different query."
-                        else "Try a different query, or enable Spotify discovery in Settings."
+                        title = stringResource(R.string.empty_search),
+                        body = if (spotifyConfigured) stringResource(R.string.search_try_different)
+                        else stringResource(R.string.search_try_different_spotify)
                     )
                 }
             }
@@ -452,7 +463,7 @@ private fun RecentSearches(
 private fun SpotifyDiscoveryHeader(selected: SpotifyType, onSelect: (SpotifyType) -> Unit) {
     Column {
         Spacer(Modifier.height(8.dp))
-        SectionHead("Not in your library", "via Spotify")
+        SectionHead(stringResource(R.string.not_in_your_library), "via Spotify")
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)

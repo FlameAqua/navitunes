@@ -1,7 +1,9 @@
 package ie.adrianszydlo.navitunes.ui.player
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -34,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.LyricLine
 import ie.adrianszydlo.navitunes.data.api.Song
@@ -120,12 +124,18 @@ fun currentSyncedLine(data: LyricsData, positionMs: Long): String? {
 
 /** Full lyrics view — synced (highlighted + auto-scrolling) or plain, using pre-fetched [data]. */
 @Composable
-fun LyricsPanel(data: LyricsData, positionMs: Long, color: Color, modifier: Modifier = Modifier) {
+fun LyricsPanel(
+    data: LyricsData,
+    positionMs: Long,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onSeek: ((Long) -> Unit)? = null
+) {
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when (data) {
             LyricsData.Loading -> CircularProgressIndicator(color = color, strokeWidth = 2.dp)
             LyricsData.None -> Text(
-                "No lyrics found for this track.",
+                stringResource(R.string.lyrics_none),
                 style = MaterialTheme.typography.bodyMedium,
                 color = NavTheme.colors.text3,
                 textAlign = TextAlign.Center
@@ -142,13 +152,18 @@ fun LyricsPanel(data: LyricsData, positionMs: Long, color: Color, modifier: Modi
                     .verticalScroll(rememberScrollState())
                     .padding(vertical = 8.dp)
             )
-            is LyricsData.Synced -> SyncedLyrics(data.lines, positionMs, color)
+            is LyricsData.Synced -> SyncedLyrics(data.lines, positionMs, color, onSeek)
         }
     }
 }
 
 @Composable
-private fun SyncedLyrics(lines: List<LyricLine>, positionMs: Long, color: Color) {
+private fun SyncedLyrics(
+    lines: List<LyricLine>,
+    positionMs: Long,
+    color: Color,
+    onSeek: ((Long) -> Unit)? = null
+) {
     val currentIndex = remember(lines, positionMs) {
         lines.indexOfLast { (it.start ?: 0) <= positionMs }.coerceAtLeast(0)
     }
@@ -169,13 +184,34 @@ private fun SyncedLyrics(lines: List<LyricLine>, positionMs: Long, color: Color)
                 animationSpec = tween(250),
                 label = "lyricLine"
             )
+            // Emphasise the active line by SCALING it (graphicsLayer), not by changing font weight.
+            // Every line is laid out at the same SemiBold metrics, so text never re-wraps when a
+            // line becomes active — a word can't jump to the next row mid-karaoke.
+            val scale by animateFloatAsState(
+                targetValue = if (active) 1.12f else 1f,
+                animationSpec = tween(250),
+                label = "lyricScale"
+            )
             Text(
                 line.value.ifBlank { "♪" },
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
                 color = lineColor,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
+                softWrap = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 40.dp) // Generous padding for scale room
+                    .then(
+                        if (onSeek != null && line.start != null) {
+                            Modifier.clickable { onSeek(line.start) }
+                        } else Modifier
+                    )
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        clip = false // Allow scaled text to draw into padding area
+                    }
             )
         }
     }

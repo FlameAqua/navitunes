@@ -9,6 +9,7 @@ import androidx.compose.runtime.Immutable
 @Immutable
 data class SongActions(
     val onPlay: (() -> Unit)? = null,
+    val onStartSongRadio: (() -> Unit)? = null,
     val onPlayNext: (() -> Unit)? = null,
     val onAddToQueue: (() -> Unit)? = null,
     val onAddToPlaylist: (() -> Unit)? = null,

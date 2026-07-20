@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +60,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.playback.PlayerController
@@ -139,6 +141,7 @@ fun RootNav() {
 @Composable
 private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
     val container = NavitunesApp.container()
+    val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     var songForPlaylist by remember { mutableStateOf<Song?>(null) }
@@ -156,11 +159,16 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
     val openManagePlaylist: (ManagePlaylistRequest) -> Unit = remember { { req -> playlistToManage = req } }
 
     val snackHost = remember { SnackbarHostState() }
-    val notifier = remember(snackHost, scope) { Notifier(snackHost, scope) }
+    val notifier = remember(snackHost, scope, context) { Notifier(snackHost, scope, context) }
 
     val downloadedIds by container.downloadRepository
         .observeDownloadedIdsForActiveProfile()
         .collectAsState(initial = emptySet())
+
+    // Now-playing song, collected once here so any SongRow can show a playing indicator.
+    val nowPlayingSong by controller.currentItem.collectAsState()
+    val nowIsPlaying by controller.isPlaying.collectAsState()
+    val nowPlaying = NowPlaying(nowPlayingSong?.id, nowIsPlaying)
     val uploadEndpoint by container.preferences.uploadEndpoint.collectAsState(initial = null)
     val activeProfileId by container.profileStore.activeId.collectAsState()
 
@@ -207,6 +215,7 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
         LocalSongInfoRequest provides openInfo,
         LocalManagePlaylistRequest provides openManagePlaylist,
         LocalDownloadedIds provides downloadedIds,
+        LocalNowPlaying provides nowPlaying,
         LocalNotifier provides notifier
     ) {
         MainShellInner(controller = controller, onAddProfile = onAddProfile, snackHost = snackHost)
@@ -227,7 +236,7 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
             ie.adrianszydlo.navitunes.ui.common.ConfirmDialog(
                 title = "Remove \"${song.title}\" from library?",
                 message = "This permanently deletes the audio file from your server. " +
-                    "Make sure you actually want it gone.",
+                    stringResource(R.string.remove_confirm_hint),
                 confirmLabel = "Remove",
                 destructive = true,
                 onConfirm = {
@@ -274,7 +283,7 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
                             is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Failure ->
                                 notifier.error(result.message)
                             is ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous ->
-                                notifier.error("Still ambiguous — try again.")
+                                notifier.error(R.string.remove_still_ambiguous)
                         }
                     }
                     ambiguousRemoval = null
@@ -388,9 +397,7 @@ private fun MainShellInner(
                     )
                 }
                 composable(Routes.RADIO) {
-                    ie.adrianszydlo.navitunes.ui.radio.RadioScreen(
-                        onPlay = { songs, idx -> controller.play(songs, idx) }
-                    )
+                    ie.adrianszydlo.navitunes.ui.radio.RadioScreen()
                 }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(

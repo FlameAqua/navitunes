@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.playback.PlayerController
 import ie.adrianszydlo.navitunes.ui.common.ArtImage
 import ie.adrianszydlo.navitunes.ui.theme.Accent
@@ -78,7 +81,8 @@ fun MiniPlayer(
                 fallback = song.title,
                 modifier = Modifier.size(44.dp),
                 cornerRadius = 8.dp,
-                requestSize = 200
+                requestSize = 200,
+                fallbackIcon = if (song.id.startsWith("radio:")) Icons.Filled.Radio else null
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -99,7 +103,7 @@ fun MiniPlayer(
                 )
             }
             IconButton(onClick = { controller.prev() }) {
-                Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
+                Icon(Icons.Filled.SkipPrevious, contentDescription = stringResource(R.string.previous))
             }
             IconButton(onClick = { controller.togglePlay() }, modifier = Modifier.size(36.dp)) {
                 Box(
@@ -113,14 +117,14 @@ fun MiniPlayer(
                     Crossfade(targetState = playing, label = "miniPlayPause") { p ->
                         Icon(
                             if (p) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (p) "Pause" else "Play",
+                            contentDescription = stringResource(if (p) R.string.pause else R.string.play),
                             tint = AccentOn
                         )
                     }
                 }
             }
             IconButton(onClick = { controller.next() }) {
-                Icon(Icons.Filled.SkipNext, contentDescription = "Next")
+                Icon(Icons.Filled.SkipNext, contentDescription = stringResource(R.string.next))
             }
         }
         // Progress bar at the bottom edge

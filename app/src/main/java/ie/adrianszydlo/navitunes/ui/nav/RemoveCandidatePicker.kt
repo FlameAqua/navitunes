@@ -14,10 +14,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.data.upload.UploadService
 import ie.adrianszydlo.navitunes.ui.common.formatBytes
 import ie.adrianszydlo.navitunes.ui.theme.Text2
@@ -39,7 +41,7 @@ fun RemoveCandidatePicker(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("Multiple files match", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.remove_multiple_match), style = MaterialTheme.typography.titleMedium)
                 Text(
                     songTitle,
                     style = MaterialTheme.typography.bodySmall,
@@ -52,7 +54,7 @@ fun RemoveCandidatePicker(
             Column {
                 Text(
                     "The server found ${candidates.size} possible files for this song. " +
-                        "Pick the one you want to delete:",
+                        stringResource(R.string.remove_pick_one),
                     style = MaterialTheme.typography.bodySmall,
                     color = Text3
                 )

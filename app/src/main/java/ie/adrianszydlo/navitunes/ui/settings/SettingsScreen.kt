@@ -84,7 +84,6 @@ fun SettingsScreen(
     val profiles by container.profileStore.profiles.collectAsState()
     val activeId by container.profileStore.activeId.collectAsState()
     val wifiOnly by container.preferences.wifiOnly.collectAsState(initial = false)
-    val skipSilence by container.preferences.skipSilence.collectAsState(initial = false)
     val themeToken by container.preferences.themeMode.collectAsState(initial = "system")
     val uploadEndpoint by container.preferences.uploadEndpoint.collectAsState(initial = null)
     val spotifyId by container.preferences.spotifyClientId.collectAsState(initial = null)
@@ -211,17 +210,6 @@ fun SettingsScreen(
             }
         }
 
-        item {
-            SettingsSection("Playback", expanded) {
-                ToggleRow(
-                    icon = Icons.Outlined.GraphicEq,
-                    label = "Skip silence",
-                    description = "Trim silent gaps within and between tracks for tighter playback.",
-                    value = skipSilence,
-                    onChange = { scope.launch { container.preferences.setSkipSilence(it) } }
-                )
-            }
-        }
 
         item {
             SettingsSection("Downloads", expanded) {

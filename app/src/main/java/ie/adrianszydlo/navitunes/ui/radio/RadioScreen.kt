@@ -19,12 +19,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Podcasts
-import androidx.compose.material.icons.outlined.Radio
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -80,7 +78,7 @@ private sealed interface RadioState {
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun RadioScreen(onPlay: (List<Song>, Int) -> Unit) {
+fun RadioScreen() {
     val container = NavitunesApp.container()
     val repo = container.libraryRepository
     val controller = LocalPlayerController.current
@@ -117,20 +115,13 @@ fun RadioScreen(onPlay: (List<Song>, Int) -> Unit) {
         if (starting) return
         starting = true
         scope.launch {
-            val similar = runCatching { repo.similarSongs(seed.id, 60) }.getOrDefault(emptyList())
-            val extra = if (similar.size < 10 && !seed.artist.isNullOrBlank()) {
-                runCatching { repo.topSongs(seed.artist!!, 40) }.getOrDefault(emptyList())
-            } else emptyList()
-            val filler = if (similar.isEmpty() && extra.isEmpty()) {
-                runCatching { repo.randomSongs(40) }.getOrDefault(emptyList())
-            } else emptyList()
-            val queue = (listOf(seed) + similar + extra + filler).distinctBy { it.id }
+            val queue = buildSongRadioQueue(repo, seed)
             starting = false
-            if (queue.size <= 1 && similar.isEmpty() && extra.isEmpty() && filler.isEmpty()) {
+            if (queue.size <= 1) {
                 notifier.error("Couldn't build a radio for this track")
             } else {
                 notifier.info("Starting radio from \"${seed.title}\"")
-                onPlay(queue, 0)
+                controller.playSongRadio(seed, queue)
             }
         }
     }
@@ -154,12 +145,12 @@ fun RadioScreen(onPlay: (List<Song>, Int) -> Unit) {
                         SectionCard(Modifier.padding(horizontal = 20.dp)) {
                             Column(Modifier.padding(vertical = 14.dp)) {
                                 Box(Modifier.padding(horizontal = 16.dp)) {
-                                    SectionHead("Song radio", "From your tracks")
+                                    SectionHead("Song Radio", "From your tracks")
                                 }
                                 Spacer(Modifier.height(10.dp))
                                 if (s.seeds.isEmpty()) {
                                     Text(
-                                        "Play a few songs first — your radio seeds appear here.",
+                                        "Play a few songs first — then you can start a station from any of them.",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = Text3,
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -280,7 +271,9 @@ private fun SeedTile(seed: Song, onClick: () -> Unit) {
                     .background(Accent),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = AccentOn, modifier = Modifier.size(20.dp))
+                // A broadcast glyph, not a play arrow — tapping starts a station seeded by
+                // this track, it doesn't just play the track.
+                Icon(Icons.Outlined.Podcasts, contentDescription = null, tint = AccentOn, modifier = Modifier.size(18.dp))
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -292,7 +285,9 @@ private fun SeedTile(seed: Song, onClick: () -> Unit) {
             overflow = TextOverflow.Ellipsis
         )
         Text(
-            seed.artist.orEmpty(),
+            // Spells out the action, since album art + title + artist otherwise reads as a
+            // plain history row.
+            if (seed.artist.isNullOrBlank()) "Radio" else "Radio · ${seed.artist}",
             style = MaterialTheme.typography.bodySmall,
             color = Text3,
             maxLines = 1,
@@ -336,7 +331,7 @@ private fun StationRow(
             )
             if (!station.homepageUrl.isNullOrBlank()) {
                 Text(
-                    station.homepageUrl!!,
+                    station.homepageUrl,
                     style = MaterialTheme.typography.bodySmall,
                     color = Text2,
                     maxLines = 1,

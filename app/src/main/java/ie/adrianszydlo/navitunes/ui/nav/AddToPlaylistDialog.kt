@@ -27,9 +27,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Playlist
 import ie.adrianszydlo.navitunes.data.api.Song
@@ -39,9 +41,9 @@ import ie.adrianszydlo.navitunes.ui.theme.Text3
 import kotlinx.coroutines.launch
 
 /**
- * Dialog shown when the user picks "Add to playlist…" on a song.
+ * Dialog shown when the user picks stringResource(R.string.add_to_playlist_ellipsis) on a song.
  * Lists the user's playlists; tapping one appends the song. An inline
- * "New playlist" row lets the user create one on the fly without leaving
+ * stringResource(R.string.playlist_new) row lets the user create one on the fly without leaving
  * the dialog.
  */
 @Composable
@@ -63,7 +65,7 @@ fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("Add to playlist", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.add_to_playlist), style = MaterialTheme.typography.titleMedium)
                 Text(
                     song.title,
                     style = MaterialTheme.typography.bodySmall,
@@ -84,7 +86,7 @@ fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
                                 value = newName,
                                 onValueChange = { newName = it },
                                 singleLine = true,
-                                placeholder = { Text("Playlist name") },
+                                placeholder = { Text(stringResource(R.string.playlist_name)) },
                                 modifier = Modifier.weight(1f)
                             )
                             Spacer(Modifier.size(8.dp))
@@ -98,10 +100,10 @@ fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
                                                 container.libraryRepository.addToPlaylist(created.id, listOf(song.id))
                                             }.onSuccess {
                                                 container.librarySignals.notifyChanged()
-                                                notifier.success("Added to \"$name\"")
+                                                notifier.success(R.string.added_to_named, name)
                                                 onDismiss()
                                             }.onFailure {
-                                                notifier.error("Couldn't add")
+                                                notifier.error(R.string.add_failed)
                                             }
                                         }
                                     }
@@ -120,13 +122,13 @@ fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
                         ) {
                             Icon(Icons.AutoMirrored.Outlined.PlaylistAdd, contentDescription = null, tint = Accent)
                             Spacer(Modifier.size(12.dp))
-                            Text("New playlist…", color = Accent, fontWeight = FontWeight.Medium)
+                            Text(stringResource(R.string.playlist_new_ellipsis), color = Accent, fontWeight = FontWeight.Medium)
                         }
                     }
 
                     if (list.isEmpty() && !creating) {
                         Text(
-                            "No playlists yet — tap above to create one.",
+                            stringResource(R.string.lib_no_playlists),
                             style = MaterialTheme.typography.bodySmall,
                             color = Text3
                         )
@@ -142,10 +144,10 @@ fun AddToPlaylistDialog(song: Song, onDismiss: () -> Unit) {
                                                     container.libraryRepository.addToPlaylist(p.id, listOf(song.id))
                                                 }.onSuccess {
                                                     container.librarySignals.notifyChanged()
-                                                    notifier.success("Added to \"${p.name}\"")
+                                                    notifier.success(R.string.added_to_named, p.name)
                                                     onDismiss()
                                                 }.onFailure {
-                                                    notifier.error("Couldn't add")
+                                                    notifier.error(R.string.add_failed)
                                                 }
                                             }
                                         }

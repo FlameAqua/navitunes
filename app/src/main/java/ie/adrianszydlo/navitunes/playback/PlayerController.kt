@@ -8,11 +8,11 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.MoreExecutors
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Song
-import ie.adrianszydlo.navitunes.data.repo.PlaybackRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -77,14 +77,46 @@ class PlayerController(private val appContext: Context) {
     val sleepEndMs: StateFlow<Long?> = _sleepEndMs.asStateFlow()
     private var sleepJob: Job? = null
 
+    /** App-level output gain (0.0–1.0), below the Bluetooth absolute-volume floor. */
+    private val _volume = MutableStateFlow(1f)
+    val volume: StateFlow<Float> = _volume.asStateFlow()
+    private var targetVolume = 1f
+    @Volatile private var fadingOut = false
+
+    /** Non-null while a Song Radio is playing; the queue auto-extends as it nears the end. */
+    private var radioSeed: Song? = null
+    private var extending = false
+
+    /** Listens for session-extras pushes from the service (favourite state) so the in-app heart
+     *  updates the instant it changes in the notification / output switcher. */
+    private val serviceListener = object : MediaController.Listener {
+        override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
+            if (extras.containsKey(EXTRA_IS_FAVORITE)) _starred.value = extras.getBoolean(EXTRA_IS_FAVORITE)
+        }
+    }
+
     fun bind() {
         if (controller != null) return
         val token = SessionToken(appContext, ComponentName(appContext, PlayerService::class.java))
-        val future = MediaController.Builder(appContext, token).buildAsync()
+        val future = MediaController.Builder(appContext, token)
+            .setListener(serviceListener)
+            .buildAsync()
         future.addListener({
             controller = future.get()
             attachListener()
+            // Seed favourite state from whatever the service last published.
+            controller?.sessionExtras?.let {
+                if (it.containsKey(EXTRA_IS_FAVORITE)) _starred.value = it.getBoolean(EXTRA_IS_FAVORITE)
+            }
             startTicker()
+            // Apply the saved output gain and keep it live.
+            scope.launch {
+                NavitunesApp.container().preferences.volume.collect { v ->
+                    targetVolume = v
+                    _volume.value = v
+                    if (!fadingOut) controller?.volume = v
+                }
+            }
         }, MoreExecutors.directExecutor())
     }
 
@@ -135,6 +167,9 @@ class PlayerController(private val appContext: Context) {
         _currentIndex.value = c.currentMediaItemIndex
         _duration.value = if (c.duration > 0) c.duration else 0L
 
+        // Song Radio: when within 2 tracks of the end, fetch more similar songs so it never stops.
+        if (radioSeed != null && _currentIndex.value >= _queue.value.size - 2) extendRadio(song)
+
         if (song != null) {
             val container = NavitunesApp.container()
             val profileId = container.profileStore.activeId.value ?: return
@@ -165,6 +200,20 @@ class PlayerController(private val appContext: Context) {
     }
 
     fun play(songs: List<Song>, startIndex: Int) {
+        radioSeed = null
+        playInternal(songs, startIndex)
+    }
+
+    /**
+     * Starts an endless Song Radio seeded from [seed]. Identical to [play] but remembers the seed
+     * so the queue auto-extends with more similar songs as playback nears the end (never runs out).
+     */
+    fun playSongRadio(seed: Song, initial: List<Song>) {
+        playInternal(initial, 0)
+        radioSeed = seed
+    }
+
+    private fun playInternal(songs: List<Song>, startIndex: Int) {
         val c = controller ?: return
         val items = songs.map { it.toMediaItem() }
         val safeIndex = startIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0))
@@ -183,6 +232,7 @@ class PlayerController(private val appContext: Context) {
      */
     fun playStream(id: String, name: String, streamUrl: String, artworkUrl: String? = null) {
         val c = controller ?: return
+        radioSeed = null
         _isLiveStream.value = true
         currentStream = StreamInfo(id, name, streamUrl, artworkUrl)
         val station = Song(id = "radio:$id", title = name, artist = "Radio")
@@ -280,16 +330,47 @@ class PlayerController(private val appContext: Context) {
         _speed.value = speed
     }
 
-    /** Pause playback after [minutes] minutes. Replaces any running timer. */
+    /**
+     * Pause playback after [minutes] minutes. Replaces any running timer. The timer is absolute
+     * (a single delay to a wall-clock deadline), so it is unaffected by track changes — it does not
+     * reset per song. On expiry the volume fades out over ~4s before pausing, then is restored.
+     */
     fun startSleepTimer(minutes: Int) {
         cancelSleepTimer()
         val durationMs = minutes * 60_000L
         _sleepEndMs.value = System.currentTimeMillis() + durationMs
         sleepJob = scope.launch {
             delay(durationMs.milliseconds)
-            controller?.pause()
+            fadeOutAndPause()
             _sleepEndMs.value = null
         }
+    }
+
+    /** Gradually attenuate to silence, pause, then restore the gain for the next playback. */
+    private suspend fun fadeOutAndPause() {
+        val c = controller ?: return
+        fadingOut = true
+        try {
+            val start = c.volume
+            val steps = 20
+            for (i in steps - 1 downTo 0) {
+                c.volume = start * i / steps
+                delay(200.milliseconds)
+            }
+            c.pause()
+        } finally {
+            controller?.volume = targetVolume
+            fadingOut = false
+        }
+    }
+
+    /** Sets the app-level output gain (0.0–1.0) and persists it. */
+    fun setVolume(v: Float) {
+        val clamped = v.coerceIn(0f, 1f)
+        targetVolume = clamped
+        _volume.value = clamped
+        if (!fadingOut) controller?.volume = clamped
+        scope.launch { NavitunesApp.container().preferences.setVolume(clamped) }
     }
 
     fun cancelSleepTimer() {
@@ -314,9 +395,37 @@ class PlayerController(private val appContext: Context) {
         }
     }
 
+    /**
+     * Extends the Song Radio queue with more songs similar to the [current] track (falling back to
+     * the seed). De-duplicates against what's already queued so the same track never repeats.
+     */
+    private fun extendRadio(current: Song?) {
+        if (extending) return
+        val seed = current ?: radioSeed ?: return
+        extending = true
+        scope.launch {
+            try {
+                val repo = NavitunesApp.container().libraryRepository
+                val more = runCatching { repo.similarSongs(seed.id, 40) }.getOrDefault(emptyList())
+                    .ifEmpty {
+                        seed.artist?.takeIf { it.isNotBlank() }
+                            ?.let { runCatching { repo.topSongs(it, 40) }.getOrDefault(emptyList()) }
+                            .orEmpty()
+                    }
+                    .ifEmpty { runCatching { repo.randomSongs(40) }.getOrDefault(emptyList()) }
+                val have = _queue.value.mapTo(HashSet()) { it.id }
+                val fresh = more.filter { it.id !in have }
+                if (fresh.isNotEmpty() && radioSeed != null) addToQueue(fresh)
+            } finally {
+                extending = false
+            }
+        }
+    }
+
     /** Hard-stop: clears the queue and dismisses the mini-player. */
     fun stop() {
         val c = controller ?: return
+        radioSeed = null
         c.stop()
         c.clearMediaItems()
         _isLiveStream.value = false
@@ -376,18 +485,17 @@ class PlayerController(private val appContext: Context) {
         }
     }
 
-    /** Toggles the star state on the currently playing song. */
-    fun toggleStarOnCurrent(repository: PlaybackRepository, onResult: (Boolean) -> Unit) {
-        val song = _currentItem.value ?: return
-        scope.launch {
-            try {
-                if (_starred.value) repository.unstar(song.id) else repository.star(song.id)
-                _starred.value = !_starred.value
-                onResult(_starred.value)
-            } catch (_: Throwable) {
-                onResult(_starred.value)
-            }
-        }
+    /**
+     * Toggles the star on the currently playing song. Routed **through the session** so the
+     * service is the single writer to the server and the notification heart, and the change
+     * flows back to every surface via session extras. Optimistic flip for instant in-app feedback.
+     */
+    fun toggleStarOnCurrent(onResult: (Boolean) -> Unit) {
+        val c = controller ?: return
+        if (_currentItem.value == null || _isLiveStream.value) return
+        _starred.value = !_starred.value
+        c.sendCustomCommand(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY), Bundle.EMPTY)
+        onResult(_starred.value)
     }
 
     private fun Song.toMediaItem(): MediaItem {

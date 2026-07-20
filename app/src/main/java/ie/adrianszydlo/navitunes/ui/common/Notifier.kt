@@ -1,5 +1,6 @@
 package ie.adrianszydlo.navitunes.ui.common
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.ui.theme.NavTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -46,16 +48,22 @@ private class NavSnackbarVisuals(
 
 /**
  * Lightweight in-app notifier: a single styled snackbar surface used for user-initiated
- * feedback ("Added to playlist", "Queued for download", …) in place of system Toasts,
+ * feedback (stringResource(R.string.added_to_playlist), stringResource(R.string.queued_for_download), …) in place of system Toasts,
  * so confirmations match the app's look and appear in-context above the mini-player.
  */
 class Notifier(
     private val host: SnackbarHostState,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val context: Context
 ) {
     fun info(message: String) = post(message, NoticeKind.Info)
+    fun info(resId: Int, vararg args: Any) = post(context.getString(resId, *args), NoticeKind.Info)
+
     fun success(message: String) = post(message, NoticeKind.Success)
+    fun success(resId: Int, vararg args: Any) = post(context.getString(resId, *args), NoticeKind.Success)
+
     fun error(message: String) = post(message, NoticeKind.Error)
+    fun error(resId: Int, vararg args: Any) = post(context.getString(resId, *args), NoticeKind.Error)
 
     private fun post(message: String, kind: NoticeKind) {
         scope.launch {

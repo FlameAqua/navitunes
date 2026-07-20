@@ -13,9 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileRenameOutline
-import androidx.compose.material.icons.outlined.Notes
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.PublicOff
 import androidx.compose.material3.Icon
@@ -29,14 +29,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.NavitunesApp
-import ie.adrianszydlo.navitunes.data.api.Playlist
 import ie.adrianszydlo.navitunes.ui.common.ConfirmDialog
 import ie.adrianszydlo.navitunes.ui.common.LocalNotifier
 import ie.adrianszydlo.navitunes.ui.common.SheetDragHandle
@@ -69,9 +70,9 @@ fun ManagePlaylistSheet(request: ManagePlaylistRequest, onDismiss: () -> Unit) {
     var confirmingDelete by remember { mutableStateOf(false) }
     val isPublic = playlist.public == true
 
-    fun done(message: String) {
+    fun done(messageRes: Int) {
         container.librarySignals.notifyChanged()
-        notifier.success(message)
+        notifier.success(messageRes)
         onDismiss()
     }
 
@@ -113,8 +114,8 @@ fun ManagePlaylistSheet(request: ManagePlaylistRequest, onDismiss: () -> Unit) {
                 onClick = { renaming = true }
             )
             SheetAction(
-                icon = { Icon(Icons.Outlined.Notes, contentDescription = null, tint = Accent) },
-                label = if (playlist.comment.isNullOrBlank()) "Add description" else "Edit description",
+                icon = { Icon(Icons.AutoMirrored.Outlined.Notes, contentDescription = null, tint = Accent) },
+                label = if (playlist.comment.isNullOrBlank()) stringResource(R.string.playlist_add_description) else stringResource(R.string.playlist_edit_description),
                 onClick = { editingDesc = true }
             )
             SheetAction(
@@ -125,18 +126,18 @@ fun ManagePlaylistSheet(request: ManagePlaylistRequest, onDismiss: () -> Unit) {
                         tint = Accent
                     )
                 },
-                label = if (isPublic) "Make private" else "Make public",
+                label = if (isPublic) stringResource(R.string.playlist_make_private) else stringResource(R.string.playlist_make_public),
                 onClick = {
                     scope.launch {
                         runCatching { repo.updatePlaylistMeta(playlist.id, public = !isPublic) }
-                            .onSuccess { done(if (isPublic) "Now private" else "Now public") }
+                            .onSuccess { done(if (isPublic) R.string.playlist_now_private else R.string.playlist_now_public) }
                             .onFailure { notifier.error("Couldn't update: ${it.message}") }
                     }
                 }
             )
             SheetAction(
                 icon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = Danger) },
-                label = "Delete playlist",
+                label = stringResource(R.string.playlist_delete),
                 tint = Danger,
                 onClick = { confirmingDelete = true }
             )
@@ -146,15 +147,15 @@ fun ManagePlaylistSheet(request: ManagePlaylistRequest, onDismiss: () -> Unit) {
 
     if (renaming) {
         TextPromptDialog(
-            title = "Rename playlist",
+            title = stringResource(R.string.playlist_rename),
             initialValue = playlist.name,
-            label = "Playlist name",
+            label = stringResource(R.string.playlist_name),
             confirmLabel = "Rename",
             onConfirm = { newName ->
                 renaming = false
                 scope.launch {
                     runCatching { repo.updatePlaylistMeta(playlist.id, name = newName) }
-                        .onSuccess { done("Renamed") }
+                        .onSuccess { done(R.string.playlist_renamed) }
                         .onFailure { notifier.error("Couldn't rename: ${it.message}") }
                 }
             },
@@ -164,9 +165,9 @@ fun ManagePlaylistSheet(request: ManagePlaylistRequest, onDismiss: () -> Unit) {
 
     if (editingDesc) {
         TextPromptDialog(
-            title = "Description",
+            title = stringResource(R.string.playlist_description),
             initialValue = playlist.comment.orEmpty(),
-            label = "Description",
+            label = stringResource(R.string.playlist_description),
             confirmLabel = "Save",
             allowEmpty = true,
             singleLine = false,
@@ -174,7 +175,7 @@ fun ManagePlaylistSheet(request: ManagePlaylistRequest, onDismiss: () -> Unit) {
                 editingDesc = false
                 scope.launch {
                     runCatching { repo.updatePlaylistMeta(playlist.id, comment = text) }
-                        .onSuccess { done("Description saved") }
+                        .onSuccess { done(R.string.playlist_description_saved) }
                         .onFailure { notifier.error("Couldn't save: ${it.message}") }
                 }
             },
@@ -185,7 +186,7 @@ fun ManagePlaylistSheet(request: ManagePlaylistRequest, onDismiss: () -> Unit) {
     if (confirmingDelete) {
         ConfirmDialog(
             title = "Delete \"${playlist.name}\"?",
-            message = "This permanently deletes the playlist from your library. The individual songs stay.",
+            message = stringResource(R.string.playlist_delete_body),
             confirmLabel = "Delete",
             destructive = true,
             onConfirm = {
@@ -194,7 +195,7 @@ fun ManagePlaylistSheet(request: ManagePlaylistRequest, onDismiss: () -> Unit) {
                     runCatching { repo.deletePlaylist(playlist.id) }
                         .onSuccess {
                             container.librarySignals.notifyChanged()
-                            notifier.success("Playlist deleted")
+                            notifier.success(R.string.playlist_deleted)
                             onDismiss()
                             request.onDeleted?.invoke()
                         }

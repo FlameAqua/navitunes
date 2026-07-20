@@ -7,7 +7,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -31,24 +35,30 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.outlined.Podcasts
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Bedtime
-import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Lyrics
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -66,9 +76,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,12 +93,14 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.zIndex
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.ui.common.NowPlayingBars
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.launch
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.playback.PlayerController
@@ -184,24 +199,27 @@ private fun FullPlayerContent(
                 .padding(bottom = 16.dp)
         ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // In the queue/lyrics sub-views the arrow returns to Now Playing; from the
-            // main view it closes the player.
+            // The queue is a full-screen takeover, so the arrow backs out of it first.
+            // Lyrics is only a swap of the media area and has its own toggle in the controls
+            // row, so the arrow dismisses the player straight away rather than closing lyrics
+            // (which used to need two taps).
             IconButton(onClick = {
                 when {
                     showQueue -> showQueue = false
-                    showLyrics -> showLyrics = false
                     else -> onClose()
                 }
             }) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Close", tint = TextHi)
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.close), tint = TextHi)
             }
             Text(
-                when {
-                    isLive -> "Live Radio"
-                    showQueue -> "Queue"
-                    showLyrics -> "Lyrics"
-                    else -> "Now Playing"
-                },
+                stringResource(
+                    when {
+                        isLive -> R.string.live_radio
+                        showQueue -> R.string.queue
+                        showLyrics -> R.string.lyrics
+                        else -> R.string.now_playing
+                    }
+                ),
                 style = MaterialTheme.typography.labelMedium,
                 color = TextHi,
                 modifier = Modifier.weight(1f),
@@ -215,7 +233,7 @@ private fun FullPlayerContent(
                 }) {
                     Icon(
                         Icons.AutoMirrored.Filled.QueueMusic,
-                        contentDescription = "Queue",
+                        contentDescription = stringResource(R.string.queue),
                         tint = if (showQueue) Accent else TextHi
                     )
                 }
@@ -238,7 +256,7 @@ private fun FullPlayerContent(
         if (song == null) {
             Spacer(Modifier.height(40.dp))
             Text(
-                "Nothing playing",
+                stringResource(R.string.nothing_playing),
                 style = MaterialTheme.typography.titleLarge,
             )
             return@Column
@@ -252,12 +270,19 @@ private fun FullPlayerContent(
             contentAlignment = Alignment.Center
         ) {
             if (showLyrics) {
-                LyricsPanel(
-                    data = lyrics,
-                    positionMs = position,
-                    color = artAccent,
-                    modifier = Modifier.fillMaxSize()
-                )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .clickable { showLyrics = false }
+                ) {
+                    LyricsPanel(
+                        data = lyrics,
+                        positionMs = position,
+                        color = artAccent,
+                        modifier = Modifier.fillMaxSize(),
+                        onSeek = { controller.seekTo(it) }
+                    )
+                }
             } else {
                 Row(
                     modifier = Modifier
@@ -280,6 +305,7 @@ private fun FullPlayerContent(
                             .weight(1f)
                             .aspectRatio(1f)
                             .clip(RoundedCornerShape(14.dp))
+                            .clickable { if (!isLive) showLyrics = true }
                             .swipeToSkip(
                                 onSwipeLeft = { controller.next() },
                                 onSwipeRight = { controller.prev() }
@@ -290,7 +316,8 @@ private fun FullPlayerContent(
                             fallback = song.title,
                             modifier = Modifier.fillMaxSize(),
                             cornerRadius = 14.dp,
-                            requestSize = 600
+                            requestSize = 600,
+                            fallbackIcon = if (isLive) Icons.Filled.Radio else null
                         )
                     }
                     VisualizerBars(
@@ -372,17 +399,17 @@ private fun FullPlayerContent(
                 horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally)
             ) {
                 IconButton(onClick = { controller.prev() }, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = TextHi)
+                    Icon(Icons.Filled.SkipPrevious, contentDescription = stringResource(R.string.previous), tint = TextHi)
                 }
                 IconButton(onClick = { controller.seekRelative(-10_000L) }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Filled.Replay10, contentDescription = "Back 10s", tint = TextHi)
+                    Icon(Icons.Filled.Replay10, contentDescription = stringResource(R.string.back_10s), tint = TextHi)
                 }
                 PlayPauseButton(playing = playing, onClick = { controller.togglePlay() })
                 IconButton(onClick = { controller.seekRelative(10_000L) }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s", tint = TextHi)
+                    Icon(Icons.Filled.Forward10, contentDescription = stringResource(R.string.forward_10s), tint = TextHi)
                 }
                 IconButton(onClick = { controller.next() }, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = TextHi)
+                    Icon(Icons.Filled.SkipNext, contentDescription = stringResource(R.string.next), tint = TextHi)
                 }
             }
 
@@ -394,32 +421,40 @@ private fun FullPlayerContent(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                SpeedChip(speed = speed, onSelect = { controller.setSpeed(it) })
+                NavigateChip(
+                    song = song,
+                    onGoToAlbum = { song.albumId?.takeIf { it.isNotBlank() }?.let { onOpenAlbum(it); onClose() } },
+                    onGoToArtist = { song.artistId?.takeIf { it.isNotBlank() }?.let { onOpenArtist(it); onClose() } },
+                    controller = controller
+                )
                 ToggleControl(
                     icon = Icons.Filled.Shuffle,
-                    contentDescription = "Shuffle",
+                    contentDescription = stringResource(R.string.shuffle),
                     active = shuffle,
                     onClick = { controller.toggleShuffle() }
                 )
                 ToggleControl(
                     icon = if (starred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = "Favorite",
+                    contentDescription = stringResource(R.string.favorite),
                     active = starred,
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        controller.toggleStarOnCurrent(NavitunesApp.container().playbackRepository) {}
+                        controller.toggleStarOnCurrent {}
                     }
                 )
                 ToggleControl(
                     icon = if (repeat == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
-                    contentDescription = "Repeat",
+                    contentDescription = stringResource(R.string.repeat),
                     active = repeat != Player.REPEAT_MODE_OFF,
                     onClick = { controller.cycleRepeat() }
                 )
-                SleepTimerChip(
+                PlayerSettingsChip(
+                    speed = speed,
+                    onSpeed = { controller.setSpeed(it) },
                     sleepEndMs = sleepEndMs,
-                    onStart = { controller.startSleepTimer(it) },
-                    onCancel = { controller.cancelSleepTimer() }
+                    onSleepStart = { controller.startSleepTimer(it) },
+                    onSleepCancel = { controller.cancelSleepTimer() },
+                    controller = controller
                 )
             }
 
@@ -451,7 +486,7 @@ private fun PlayPauseButton(playing: Boolean, onClick: () -> Unit) {
     ) {
         Icon(
             if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-            contentDescription = if (playing) "Pause" else "Play",
+            contentDescription = stringResource(if (playing) R.string.pause else R.string.play),
             tint = MaterialTheme.colorScheme.background,
             modifier = Modifier.size(32.dp)
         )
@@ -494,9 +529,9 @@ private fun LyricsCard(
     onClick: () -> Unit
 ) {
     val preview = when (lyrics) {
-        LyricsData.None -> "No lyrics for this track"
-        LyricsData.Loading -> "Lyrics"
-        is LyricsData.Plain -> "View lyrics"
+        LyricsData.None -> stringResource(R.string.lyrics_none_short)
+        LyricsData.Loading -> stringResource(R.string.lyrics)
+        is LyricsData.Plain -> stringResource(R.string.lyrics_view)
         is LyricsData.Synced -> currentSyncedLine(lyrics, positionMs) ?: "♪"
     }
     val colors = NavTheme.colors
@@ -511,7 +546,7 @@ private fun LyricsCard(
     ) {
         Icon(
             Icons.Outlined.Lyrics,
-            contentDescription = "Lyrics",
+            contentDescription = stringResource(R.string.lyrics),
             tint = if (expanded) Accent else Text2,
             modifier = Modifier.size(18.dp)
         )
@@ -533,56 +568,247 @@ private fun LyricsCard(
     }
 }
 
-/** Icon-only playback-speed control (matches the shuffle/favorite/repeat toggles). */
+private fun formatSpeed(s: Float) = s.toString().trimEnd('0').trimEnd('.')
+
 @Composable
-private fun SpeedChip(speed: Float, onSelect: (Float) -> Unit) {
+private fun NavigateChip(
+    song: ie.adrianszydlo.navitunes.data.api.Song,
+    onGoToAlbum: () -> Unit,
+    onGoToArtist: () -> Unit,
+    controller: PlayerController
+) {
     var open by remember { mutableStateOf(false) }
-    val options = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
-    fun fmt(s: Float) = s.toString().trimEnd('0').trimEnd('.')
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val notifier = ie.adrianszydlo.navitunes.ui.common.LocalNotifier.current
     Box {
         ToggleControl(
-            icon = Icons.Outlined.Speed,
-            contentDescription = "Playback speed",
-            active = speed != 1f,
+            icon = Icons.Outlined.Explore,
+            contentDescription = stringResource(R.string.navigate),
+            active = false,
             onClick = { open = true }
         )
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            options.forEach { s ->
+            if (!song.albumId.isNullOrBlank()) {
                 DropdownMenuItem(
-                    text = { Text("${fmt(s)}×", color = if (s == speed) Accent else Color.Unspecified) },
-                    onClick = { onSelect(s); open = false }
+                    text = { Text(stringResource(R.string.go_to_album)) },
+                    leadingIcon = { Icon(Icons.Outlined.Album, contentDescription = null) },
+                    onClick = { open = false; onGoToAlbum() }
+                )
+            }
+            if (!song.artistId.isNullOrBlank()) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.go_to_artist)) },
+                    leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
+                    onClick = { open = false; onGoToArtist() }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.start_song_radio)) },
+                leadingIcon = { Icon(Icons.Outlined.Podcasts, contentDescription = null) },
+                onClick = {
+                    open = false
+                    scope.launch {
+                        val q = ie.adrianszydlo.navitunes.ui.radio.buildSongRadioQueue(
+                            NavitunesApp.container().libraryRepository, song
+                        )
+                        if (q.size <= 1) notifier.error(R.string.song_radio_failed)
+                        else {
+                            controller.playSongRadio(song, q)
+                            notifier.info(R.string.starting_radio_named, song.title)
+                        }
+                    }
+                }
+            )
+        }
+    }
+}
+
+/** Rightmost control: opens a small panel for playback speed, sleep timer, skip-silence, volume. */
+@Composable
+private fun PlayerSettingsChip(
+    speed: Float,
+    onSpeed: (Float) -> Unit,
+    sleepEndMs: Long?,
+    onSleepStart: (Int) -> Unit,
+    onSleepCancel: () -> Unit,
+    controller: PlayerController
+) {
+    var open by remember { mutableStateOf(false) }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(sleepEndMs) {
+        if (sleepEndMs != null) {
+            while (true) {
+                now = System.currentTimeMillis()
+                kotlinx.coroutines.delay(1000.milliseconds)
+            }
+        }
+    }
+
+    // Box with fixed size matching other controls (44.dp) keeps the icon aligned in the Row.
+    // The timer text is positioned with an offset so it doesn't expand the container.
+    Box(
+        modifier = Modifier.size(44.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        ToggleControl(
+            icon = Icons.Outlined.Tune,
+            contentDescription = stringResource(R.string.player_settings),
+            active = speed != 1f,
+            onClick = { open = true }
+        )
+        if (sleepEndMs != null) {
+            val remainingMs = sleepEndMs - now
+            val remainingMin = (remainingMs + 59_999) / 60_000 // Round up to nearest minute
+            Text(
+                text = "${remainingMin}m",
+                style = MaterialTheme.typography.labelSmall,
+                color = Accent,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .offset(y = 12.dp) // Hangs below the 44dp box
+            )
+        }
+    }
+
+    if (open) {
+        PlayerSettingsDialog(
+            speed = speed, onSpeed = onSpeed,
+            sleepEndMs = sleepEndMs, onSleepStart = onSleepStart, onSleepCancel = onSleepCancel,
+            controller = controller,
+            onDismiss = { open = false }
+        )
+    }
+}
+
+@Composable
+private fun PlayerSettingsDialog(
+    speed: Float,
+    onSpeed: (Float) -> Unit,
+    sleepEndMs: Long?,
+    onSleepStart: (Int) -> Unit,
+    onSleepCancel: () -> Unit,
+    controller: PlayerController,
+    onDismiss: () -> Unit
+) {
+    val container = NavitunesApp.container()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val skipSilence by container.preferences.skipSilence.collectAsStateWithLifecycle(initialValue = false)
+    val volume by controller.volume.collectAsStateWithLifecycle()
+
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(sleepEndMs) {
+        if (sleepEndMs != null) {
+            while (true) {
+                now = System.currentTimeMillis()
+                kotlinx.coroutines.delay(1000.milliseconds)
+            }
+        }
+    }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(NavTheme.colors.surfaceElev)
+                .padding(20.dp)
+        ) {
+            Text(stringResource(R.string.player_settings), style = MaterialTheme.typography.titleMedium, color = TextHi)
+            Spacer(Modifier.height(16.dp))
+
+            // Volume
+            SettingLabel(stringResource(R.string.volume), "${(volume * 100).toInt()}%")
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = Text2, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(12.dp))
+                val interactionSource = remember { MutableInteractionSource() }
+                val isDragging by interactionSource.collectIsDraggedAsState()
+                var sliderVolume by remember { mutableFloatStateOf(volume) }
+
+                LaunchedEffect(volume) {
+                    if (!isDragging) sliderVolume = volume
+                }
+
+                Slider(
+                    value = sliderVolume,
+                    onValueChange = {
+                        sliderVolume = it
+                        controller.setVolume(it)
+                    },
+                    interactionSource = interactionSource,
+                    colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+
+            // Playback speed
+            SettingLabel(stringResource(R.string.playback_speed), "${formatSpeed(speed)}×")
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Speed, contentDescription = null, tint = Text2, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(12.dp))
+                Slider(
+                    value = speed,
+                    onValueChange = { onSpeed(it) },
+                    valueRange = 0.5f..2f,
+                    steps = 5, // 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0
+                    colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+
+            // Sleep timer
+            val remainingMs = sleepEndMs?.let { it - now }?.coerceAtLeast(0)
+            val remainingLabel = remainingMs?.let {
+                val totalSec = it / 1000
+                val min = totalSec / 60
+                val sec = totalSec % 60
+                " (%d:%02d left)".format(min, sec)
+            } ?: ""
+            SettingLabel(stringResource(R.string.sleep_timer), if (sleepEndMs != null) "Active$remainingLabel" else stringResource(R.string.sleep_timer_off))
+            Spacer(Modifier.height(4.dp))
+            var sliderSleepValue by remember(sleepEndMs) {
+                mutableFloatStateOf(if (sleepEndMs == null) 0f else ((sleepEndMs - now) / 60_000f).coerceIn(0f, 120f))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Bedtime, contentDescription = null, tint = Text2, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(12.dp))
+                Slider(
+                    value = sliderSleepValue,
+                    onValueChange = { sliderSleepValue = it },
+                    onValueChangeFinished = {
+                        val min = sliderSleepValue.toInt()
+                        if (min == 0) onSleepCancel() else onSleepStart(min)
+                    },
+                    valueRange = 0f..120f,
+                    steps = 7, // 0, 15, 30, 45, 60, 75, 90, 105, 120
+                    colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+
+            // Skip silence
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.skip_silence), style = MaterialTheme.typography.bodyLarge, color = TextHi, modifier = Modifier.weight(1f))
+                androidx.compose.material3.Switch(
+                    checked = skipSilence,
+                    onCheckedChange = { scope.launch { container.preferences.setSkipSilence(it) } }
                 )
             }
         }
     }
 }
 
-/** Icon-only sleep-timer control. */
 @Composable
-private fun SleepTimerChip(sleepEndMs: Long?, onStart: (Int) -> Unit, onCancel: () -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    val active = sleepEndMs != null
-    Box {
-        ToggleControl(
-            icon = Icons.Outlined.Bedtime,
-            contentDescription = "Sleep timer",
-            active = active,
-            onClick = { open = true }
-        )
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            listOf(15, 30, 45, 60).forEach { min ->
-                DropdownMenuItem(
-                    text = { Text("$min minutes") },
-                    onClick = { onStart(min); open = false }
-                )
-            }
-            if (active) {
-                DropdownMenuItem(
-                    text = { Text("Turn off", color = Accent) },
-                    onClick = { onCancel(); open = false }
-                )
-            }
-        }
+private fun SettingLabel(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = TextHi, modifier = Modifier.weight(1f))
+        if (value.isNotBlank()) Text(value, style = MaterialTheme.typography.labelMedium, color = Accent)
     }
 }
 
@@ -705,6 +931,15 @@ private fun SeekRow(position: Long, duration: Long, onSeek: (Long) -> Unit) {
     }
 }
 
+/**
+ * One queue slot with a reorder-stable identity. The uid is minted per slot (not per song)
+ * because the same song can appear in the queue more than once.
+ */
+private data class QueueRow(
+    val uid: String,
+    val song: ie.adrianszydlo.navitunes.data.api.Song
+)
+
 @Composable
 private fun QueueView(
     queue: List<ie.adrianszydlo.navitunes.data.api.Song>,
@@ -715,29 +950,96 @@ private fun QueueView(
 ) {
     if (queue.isEmpty()) {
         Spacer(Modifier.height(40.dp))
-        Text("Queue is empty", style = MaterialTheme.typography.bodyLarge, color = Text2)
+        Text(stringResource(R.string.queue_empty), style = MaterialTheme.typography.bodyLarge, color = Text2)
         return
     }
     val listState = rememberLazyListState()
     LaunchedEffect(Unit) { if (currentIndex >= 0) listState.scrollToItem(currentIndex) }
 
-    // Drag-to-reorder state: which row is picked up, and its running finger offset.
-    var draggingIndex by remember { mutableStateOf(-1) }
+    // Every row needs a key that survives reordering, otherwise Compose tears the row down
+    // and rebuilds it on each move and the drag reads as a snap. A queue can legitimately
+    // hold the same song twice, so the id alone isn't unique — we mint a uid per slot when
+    // the player's queue changes and then carry it through any local reordering.
+    val baseRows = remember(queue) { queue.mapIndexed { i, s -> QueueRow("${s.id}#$i", s) } }
+
+    // While a drag is in flight we reorder this preview copy and leave the real player queue
+    // alone; the move is committed once, on drag end. Mutating the player mid-drag was the
+    // other half of the snapping bug. Resets to null when the new queue arrives from the
+    // player, which is the handoff back to the authoritative order.
+    var preview by remember(baseRows) { mutableStateOf<List<QueueRow>?>(null) }
+    val rows = preview ?: baseRows
+
+    var draggingUid by remember { mutableStateOf<String?>(null) }
+    var dragOrigin by remember { mutableIntStateOf(-1) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
+    var dragCenterY by remember { mutableFloatStateOf(Float.NaN) }
+
+    // Re-derive the preview ordering from the current finger offset. Called from the drag
+    // callback and again from the auto-scroll loop, where no drag events fire because the
+    // finger is parked at the edge and holding still.
+    fun settle() {
+        val uid = draggingUid ?: return
+        val list = preview ?: baseRows
+        val from = list.indexOfFirst { it.uid == uid }
+        if (from < 0) return
+        val cur = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == from } ?: return
+        val size = cur.size.toFloat().coerceAtLeast(1f)
+        // Walk a slot at a time so one fast flick can cross several rows.
+        var moved = from
+        var off = dragOffset
+        while (off > size / 2f && moved < list.lastIndex) { moved++; off -= size }
+        while (off < -size / 2f && moved > 0) { moved--; off += size }
+        if (moved != from) {
+            preview = list.toMutableList().apply { add(moved, removeAt(from)) }
+            dragOffset = off
+        }
+        dragCenterY = cur.offset + size / 2f + dragOffset
+    }
+
+    // Holding the row near either edge scrolls the list, so a track can be dragged to any
+    // position in a long queue rather than only as far as the viewport reaches.
+    LaunchedEffect(draggingUid) {
+        if (draggingUid == null) return@LaunchedEffect
+        while (true) {
+            withFrameNanos { }
+            val viewport = listState.layoutInfo.viewportSize.height.toFloat()
+            val y = dragCenterY
+            if (viewport > 0f && !y.isNaN()) {
+                val zone = viewport * 0.15f
+                val speed = when {
+                    y < zone -> -(zone - y) / zone
+                    y > viewport - zone -> (y - (viewport - zone)) / zone
+                    else -> 0f
+                }
+                if (speed != 0f) {
+                    // Scrolling shifts the row's laid-out position, so fold what was actually
+                    // consumed back into the offset to keep the row under the finger.
+                    dragOffset += listState.scrollBy(speed.coerceIn(-1f, 1f) * 22f)
+                    settle()
+                }
+            }
+        }
+    }
 
     Text(
-        "Hold a track to reorder",
+        stringResource(R.string.queue_reorder_hint),
         style = MaterialTheme.typography.labelSmall,
         color = NavTheme.colors.text3,
         modifier = Modifier.padding(start = 8.dp, bottom = 6.dp)
     )
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-        // Key by identity+index so a moved row keeps its composition during the drag.
-        itemsIndexed(queue, key = { i, s -> "${s.id}-$i" }) { idx, song ->
-            val dragging = idx == draggingIndex
+        itemsIndexed(rows, key = { _, r -> r.uid }) { idx, row ->
+            val song = row.song
+            val dragging = row.uid == draggingUid
+            // Indices into the player's queue, which is unchanged while a preview is showing.
+            val playerIdx = remember(row.uid, baseRows) { baseRows.indexOfFirst { it.uid == row.uid } }
+            val isCurrent = playerIdx == currentIndex
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // The dragged row is positioned by hand; everything else animates into
+                    // its new slot, which is what makes the reorder read as smooth.
+                    .then(if (dragging) Modifier else Modifier.animateItem())
                     .zIndex(if (dragging) 1f else 0f)
                     .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
                     .padding(horizontal = 8.dp, vertical = 3.dp)
@@ -745,46 +1047,59 @@ private fun QueueView(
                     .background(
                         when {
                             dragging -> NavTheme.colors.surfaceHi
-                            idx == currentIndex -> Accent.copy(alpha = 0.12f)
+                            isCurrent -> Accent.copy(alpha = 0.12f)
                             else -> NavTheme.colors.surfaceElev
                         }
                     )
-                    .clickable { onPlay(idx) }
+                    .clickable { if (playerIdx >= 0) onPlay(playerIdx) }
                     .padding(vertical = 6.dp, horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Drag handle — press and drag (after a long-press) to reorder.
                 Icon(
                     Icons.Filled.DragHandle,
-                    contentDescription = "Reorder",
+                    contentDescription = stringResource(R.string.queue_reorder),
                     tint = NavTheme.colors.text3,
                     modifier = Modifier
                         .size(24.dp)
-                        .pointerInput(queue.size) {
+                        .pointerInput(row.uid) {
                             detectDragGesturesAfterLongPress(
-                                onDragStart = { draggingIndex = idx; dragOffset = 0f },
-                                onDragEnd = { draggingIndex = -1; dragOffset = 0f },
-                                onDragCancel = { draggingIndex = -1; dragOffset = 0f },
+                                onDragStart = {
+                                    draggingUid = row.uid
+                                    dragOrigin = (preview ?: baseRows).indexOfFirst { it.uid == row.uid }
+                                    dragOffset = 0f
+                                    dragCenterY = Float.NaN
+                                },
+                                onDragEnd = {
+                                    val to = (preview ?: baseRows).indexOfFirst { it.uid == row.uid }
+                                    val from = dragOrigin
+                                    draggingUid = null
+                                    dragOffset = 0f
+                                    dragOrigin = -1
+                                    dragCenterY = Float.NaN
+                                    // Commit exactly one net move; the preview clears when the
+                                    // reordered queue comes back from the player.
+                                    if (from >= 0 && to >= 0 && from != to) onMove(from, to)
+                                    else preview = null
+                                },
+                                onDragCancel = {
+                                    draggingUid = null
+                                    dragOffset = 0f
+                                    dragOrigin = -1
+                                    dragCenterY = Float.NaN
+                                    preview = null
+                                },
                                 onDrag = { change, amount ->
                                     change.consume()
-                                    val from = draggingIndex
-                                    if (from < 0) return@detectDragGesturesAfterLongPress
                                     dragOffset += amount.y
-                                    val rows = listState.layoutInfo.visibleItemsInfo
-                                    val cur = rows.firstOrNull { it.index == from } ?: return@detectDragGesturesAfterLongPress
-                                    val size = cur.size.toFloat().coerceAtLeast(1f)
-                                    if (dragOffset > size / 2f && from < queue.lastIndex) {
-                                        onMove(from, from + 1); draggingIndex = from + 1; dragOffset -= size
-                                    } else if (dragOffset < -size / 2f && from > 0) {
-                                        onMove(from, from - 1); draggingIndex = from - 1; dragOffset += size
-                                    }
+                                    settle()
                                 }
                             )
                         }
                 )
                 Spacer(Modifier.width(8.dp))
                 Box(Modifier.width(22.dp), contentAlignment = Alignment.Center) {
-                    if (idx == currentIndex) {
+                    if (isCurrent) {
                         NowPlayingBars(color = Accent, modifier = Modifier.size(width = 16.dp, height = 14.dp))
                     } else {
                         Text("${idx + 1}", style = MaterialTheme.typography.labelMedium, color = Text2)
@@ -796,7 +1111,7 @@ private fun QueueView(
                         song.title,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium,
-                        color = if (idx == currentIndex) Accent else TextHi,
+                        color = if (isCurrent) Accent else TextHi,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
@@ -812,8 +1127,8 @@ private fun QueueView(
                 }
                 Spacer(Modifier.width(8.dp))
                 Text(formatDuration(song.duration), style = MaterialTheme.typography.labelMedium, color = Text2)
-                IconButton(onClick = { onRemove(idx) }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Outlined.Close, contentDescription = "Remove", tint = NavTheme.colors.text3, modifier = Modifier.size(20.dp))
+                IconButton(onClick = { if (playerIdx >= 0) onRemove(playerIdx) }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.remove), tint = NavTheme.colors.text3, modifier = Modifier.size(20.dp))
                 }
             }
         }

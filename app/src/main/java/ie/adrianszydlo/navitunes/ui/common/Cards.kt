@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Podcasts
 import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteSweep
@@ -48,6 +49,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,12 +59,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Album
 import ie.adrianszydlo.navitunes.data.api.Artist
 import ie.adrianszydlo.navitunes.data.api.Playlist
 import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.ui.nav.LocalDownloadedIds
+import ie.adrianszydlo.navitunes.ui.nav.LocalNowPlaying
 import ie.adrianszydlo.navitunes.ui.nav.LocalPlayerController
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -106,12 +110,12 @@ private fun MediaActionsMenu(
 
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(
-            text = { Text("Play next") },
+            text = { Text(stringResource(R.string.play_next)) },
             leadingIcon = { Icon(Icons.Outlined.QueuePlayNext, contentDescription = null) },
             onClick = { withSongs { controller.playNext(it); notifier.info("Playing ${it.size} next") } }
         )
         DropdownMenuItem(
-            text = { Text("Add to queue") },
+            text = { Text(stringResource(R.string.add_to_queue)) },
             leadingIcon = { Icon(Icons.AutoMirrored.Outlined.PlaylistAdd, contentDescription = null) },
             onClick = { withSongs { controller.addToQueue(it); notifier.info("Added ${it.size} to queue") } }
         )
@@ -121,7 +125,7 @@ private fun MediaActionsMenu(
             onClick = {
                 withSongs { songs ->
                     if (!container.downloadRepository.hasStorageAccess()) {
-                        notifier.error("Grant storage access in Settings → Downloads first.")
+                        notifier.error(R.string.storage_permission_hint)
                     } else {
                         val wifi = container.preferences.wifiOnly.first()
                         container.downloadRepository.enqueueAll(songs, wifi)
@@ -190,7 +194,10 @@ fun SongRow(
     modifier: Modifier = Modifier,
     showArt: Boolean = true,
     position: Int? = null,
-    isPlaying: Boolean = false,
+    // Defaults to "is this the current track & actively playing" from the shared now-playing
+    // local, so every list (album, playlist, library, search) shows the indicator with no wiring.
+    // Callers that manage their own indicator (e.g. the queue) can still override.
+    isPlaying: Boolean = LocalNowPlaying.current.let { it.id == song.id && it.playing },
     actions: SongActions? = null
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -263,19 +270,17 @@ fun SongRow(
                     Spacer(Modifier.width(6.dp))
                     Icon(
                         Icons.Outlined.DownloadDone,
-                        contentDescription = "Available offline",
+                        contentDescription = stringResource(R.string.available_offline),
                         tint = Success,
                         modifier = Modifier.size(14.dp)
                     )
                 }
             }
-            val subtitle = buildString {
-                append(song.artist.orEmpty())
-                if (!song.album.isNullOrBlank()) {
-                    if (isNotEmpty()) append(" · ")
-                    append(song.album)
-                }
-            }
+            // Artist only. Navidrome joins multiple artists into `artist` with the same "·"
+            // separator, so also appending the album made the album read as another artist
+            // (e.g. "PIAZZA · Plixis · Crank That (Soulja Boy)"). Fall back to the album only
+            // when there's no artist at all.
+            val subtitle = song.artist?.takeIf { it.isNotBlank() } ?: song.album.orEmpty()
             if (subtitle.isNotBlank()) {
                 Text(
                     subtitle,
@@ -329,35 +334,42 @@ private fun SongMenu(
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         actions.onPlay?.let {
             DropdownMenuItem(
-                text = { Text("Play now") },
+                text = { Text(stringResource(R.string.play_now)) },
                 leadingIcon = { Icon(Icons.Outlined.PlayArrow, contentDescription = null) },
+                onClick = { onDismiss(); it() }
+            )
+        }
+        actions.onStartSongRadio?.let {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.start_song_radio)) },
+                leadingIcon = { Icon(Icons.Outlined.Podcasts, contentDescription = null) },
                 onClick = { onDismiss(); it() }
             )
         }
         actions.onShowInfo?.let {
             DropdownMenuItem(
-                text = { Text("Song info") },
+                text = { Text(stringResource(R.string.song_info)) },
                 leadingIcon = { Icon(Icons.Outlined.Info, contentDescription = null) },
                 onClick = { onDismiss(); it() }
             )
         }
         actions.onPlayNext?.let {
             DropdownMenuItem(
-                text = { Text("Play next") },
+                text = { Text(stringResource(R.string.play_next)) },
                 leadingIcon = { Icon(Icons.Outlined.QueuePlayNext, contentDescription = null) },
                 onClick = { onDismiss(); it() }
             )
         }
         actions.onAddToQueue?.let {
             DropdownMenuItem(
-                text = { Text("Add to queue") },
+                text = { Text(stringResource(R.string.add_to_queue)) },
                 leadingIcon = { Icon(Icons.AutoMirrored.Outlined.PlaylistAdd, contentDescription = null) },
                 onClick = { onDismiss(); it() }
             )
         }
         actions.onAddToPlaylist?.let {
             DropdownMenuItem(
-                text = { Text("Add to playlist…") },
+                text = { Text(stringResource(R.string.add_to_playlist_ellipsis)) },
                 leadingIcon = { Icon(Icons.AutoMirrored.Outlined.PlaylistAdd, contentDescription = null) },
                 onClick = { onDismiss(); it() }
             )
@@ -378,21 +390,21 @@ private fun SongMenu(
         }
         actions.onFavorite?.let {
             DropdownMenuItem(
-                text = { Text(if (isFavorited) "Remove favorite" else "Add to favorites") },
+                text = { Text(if (isFavorited) "Remove favorite" else stringResource(R.string.add_to_favorites)) },
                 leadingIcon = { Icon(Icons.Outlined.Favorite, contentDescription = null) },
                 onClick = { onDismiss(); it() }
             )
         }
         actions.onOpenAlbum?.let {
             DropdownMenuItem(
-                text = { Text("Go to album") },
+                text = { Text(stringResource(R.string.go_to_album)) },
                 leadingIcon = { Icon(Icons.Outlined.Album, contentDescription = null) },
                 onClick = { onDismiss(); it() }
             )
         }
         actions.onRemoveFromPlaylist?.let {
             DropdownMenuItem(
-                text = { Text("Remove from playlist") },
+                text = { Text(stringResource(R.string.remove_from_playlist)) },
                 leadingIcon = { Icon(Icons.Outlined.PlaylistRemove, contentDescription = null) },
                 onClick = { onDismiss(); it() }
             )
@@ -401,7 +413,7 @@ private fun SongMenu(
             DropdownMenuItem(
                 text = {
                     Text(
-                        "Remove song from library",
+                        stringResource(R.string.remove_song_from_library),
                         color = ie.adrianszydlo.navitunes.ui.theme.Danger
                     )
                 },
@@ -503,7 +515,7 @@ fun PlaylistRow(playlist: Playlist, onClick: () -> Unit, modifier: Modifier = Mo
 
 /**
  * Long-press menu for a playlist — the media actions (play next / queue / download)
- * plus "Edit playlist…" which opens the management sheet. Public so any playlist host
+ * plus stringResource(R.string.playlist_edit) which opens the management sheet. Public so any playlist host
  * (Library rows, Home cards) shows the same context menu.
  */
 @Composable
@@ -515,7 +527,7 @@ fun PlaylistActionsMenu(expanded: Boolean, onDismiss: () -> Unit, playlist: Play
         loadSongs = { NavitunesApp.container().libraryRepository.playlist(playlist.id).entry },
         extraItems = {
             DropdownMenuItem(
-                text = { Text("Edit playlist…") },
+                text = { Text(stringResource(R.string.playlist_edit)) },
                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                 onClick = {
                     onDismiss()

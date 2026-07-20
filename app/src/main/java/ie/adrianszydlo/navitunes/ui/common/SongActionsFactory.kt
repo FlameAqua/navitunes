@@ -5,6 +5,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Song
 import ie.adrianszydlo.navitunes.playback.PlayerController
@@ -40,19 +41,32 @@ fun rememberSongActions(
     return remember(song.id, playNow, onOpenAlbum, wifiOnly, uploadEndpoint, onRemoveFromPlaylist) {
         SongActions(
             onPlay = playNow,
+            onStartSongRadio = {
+                scope.launch {
+                    val queue = ie.adrianszydlo.navitunes.ui.radio.buildSongRadioQueue(
+                        container.libraryRepository, song
+                    )
+                    if (queue.size <= 1) {
+                        notifier.error(R.string.song_radio_failed)
+                    } else {
+                        controller.playSongRadio(song, queue)
+                        notifier.info(R.string.starting_radio_named, song.title)
+                    }
+                }
+            },
             onPlayNext = { controller.playNext(song) },
             onAddToQueue = {
                 controller.addToQueue(song)
-                notifier.info("Added to queue")
+                notifier.info(R.string.added_to_queue)
             },
             onAddToPlaylist = { openPicker(song) },
             onDownload = {
                 if (!container.downloadRepository.hasStorageAccess()) {
-                    notifier.error("Grant storage access in Settings → Downloads first.")
+                    notifier.error(R.string.storage_permission_hint)
                 } else {
                     scope.launch {
                         container.downloadRepository.enqueueSong(song, wifiOnly)
-                        notifier.info("Downloading \"${song.title}\"")
+                        notifier.info(R.string.downloading_named, song.title)
                     }
                 }
             },
@@ -61,10 +75,10 @@ fun rememberSongActions(
                     runCatching {
                         if (song.starred.isNullOrBlank()) {
                             container.playbackRepository.star(song.id)
-                            notifier.success("Added to favorites")
+                            notifier.success(R.string.added_to_favorites)
                         } else {
                             container.playbackRepository.unstar(song.id)
-                            notifier.info("Removed from favorites")
+                            notifier.info(R.string.removed_from_favorites)
                         }
                     }
                 }

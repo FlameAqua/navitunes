@@ -43,12 +43,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ie.adrianszydlo.navitunes.R
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Playlist
 import ie.adrianszydlo.navitunes.data.api.Song
@@ -169,7 +171,7 @@ fun HomeScreen(
             }
             is HomeState.Error -> Column(Modifier.fillMaxSize()) {
                 GreetingHeader(activeName)
-                ErrorState("Could not load home", s.message, onRetry = { reloadTick++ })
+                ErrorState(stringResource(R.string.home_load_failed), s.message, onRetry = { reloadTick++ })
             }
             is HomeState.Ready -> {
                 val empty = s.recentSongs.isEmpty() && s.playlists.isEmpty() &&
@@ -178,8 +180,8 @@ fun HomeScreen(
                     Column(Modifier.fillMaxSize()) {
                         GreetingHeader(activeName)
                         EmptyState(
-                            title = "Your library is empty",
-                            body = "Add music to Navidrome and rescan."
+                            title = stringResource(R.string.empty_library),
+                            body = stringResource(R.string.empty_library_body)
                         )
                     }
                 } else {
@@ -199,7 +201,7 @@ fun HomeScreen(
                                 SectionCard(Modifier.padding(horizontal = 20.dp)) {
                                     Column(Modifier.padding(vertical = 14.dp)) {
                                         Box(Modifier.padding(horizontal = 16.dp)) {
-                                            SectionHead("Recently Played", "Continue Listening")
+                                            SectionHead(stringResource(R.string.section_recently_played), stringResource(R.string.home_continue_listening))
                                         }
                                         Spacer(Modifier.height(4.dp))
                                         RecentlyPlayedCarousel(
@@ -225,8 +227,8 @@ fun HomeScreen(
 
                             if (s.newestSongs.isNotEmpty()) {
                                 CardSongSection(
-                                    title = "Recently Added",
-                                    subtitle = "Freshly added",
+                                    title = stringResource(R.string.section_recently_added),
+                                    subtitle = stringResource(R.string.home_freshly_added),
                                     songs = s.newestSongs,
                                     onPlay = { idx -> onPlay(s.newestSongs, idx) },
                                     onAlbum = onAlbum,
@@ -237,7 +239,7 @@ fun HomeScreen(
                             if (s.shuffle.isNotEmpty()) {
                                 CardSongSection(
                                     title = "Shuffle",
-                                    subtitle = "Random picks",
+                                    subtitle = stringResource(R.string.home_random_picks),
                                     songs = s.shuffle.take(10),
                                     onPlay = { idx -> onPlay(s.shuffle, idx) },
                                     onAlbum = onAlbum,
@@ -260,11 +262,11 @@ fun HomeScreen(
                     runCatching { repo.createPlaylist(name) }
                         .onSuccess {
                             container.librarySignals.notifyChanged()
-                            notifier.success("Created \"$name\"")
+                            notifier.success(R.string.created_named, name)
                             reloadTick++
                         }
                         .onFailure {
-                            notifier.error("Couldn't create playlist")
+                            notifier.error(R.string.playlist_create_failed)
                         }
                 }
                 showCreate = false
@@ -278,9 +280,9 @@ fun HomeScreen(
 private fun GreetingHeader(name: String?) {
     val hour = remember { LocalTime.now().hour }
     val greeting = when {
-        hour < 12 -> "Good morning"
-        hour < 18 -> "Good afternoon"
-        else -> "Good evening"
+        hour < 12 -> stringResource(R.string.greeting_morning)
+        hour < 18 -> stringResource(R.string.greeting_afternoon)
+        else -> stringResource(R.string.greeting_evening)
     }
     Column(
         Modifier
@@ -296,7 +298,7 @@ private fun GreetingHeader(name: String?) {
             textAlign = TextAlign.Center
         )
         Text(
-            if (name != null) "Welcome back, $name" else "What do you want to hear?",
+            if (name != null) "Welcome back, $name" else stringResource(R.string.home_prompt),
             style = MaterialTheme.typography.labelMedium,
             color = Text3,
             textAlign = TextAlign.Center,
@@ -405,7 +407,7 @@ private fun CardSongSection(
                     ) {
                         Icon(Icons.Filled.Shuffle, contentDescription = null, tint = Accent, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Shuffle all", color = Accent, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.lib_shuffle_all), color = Accent, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
@@ -427,7 +429,7 @@ private fun PlaylistsSection(
             .padding(start = 16.dp, end = 8.dp, bottom = 10.dp)
     ) {
         Box(Modifier.weight(1f)) {
-            SectionHead("My Playlists")
+            SectionHead(stringResource(R.string.home_my_playlists))
         }
         TextButton(onClick = onCreate) {
             Icon(Icons.Outlined.Add, contentDescription = null, tint = Accent)
@@ -451,7 +453,7 @@ private fun PlaylistsSection(
                 Icon(Icons.Outlined.Add, contentDescription = null, tint = Accent)
                 Spacer(Modifier.size(6.dp))
                 Text(
-                    "Create your first playlist",
+                    stringResource(R.string.lib_create_first_playlist),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Text2
                 )
@@ -519,13 +521,13 @@ private fun CreatePlaylistDialog(
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("New playlist") },
+        title = { Text(stringResource(R.string.playlist_new)) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
                 singleLine = true,
-                placeholder = { Text("Playlist name") }
+                placeholder = { Text(stringResource(R.string.playlist_name)) }
             )
         },
         confirmButton = {

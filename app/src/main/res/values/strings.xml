@@ -38,21 +38,72 @@
     <string name="retry">Retry</string>
     <string name="ok">OK</string>
 
+    <!-- Counted quantities.
+         Polish has four plural forms (one / few / many / other) where English has two:
+         1 piosenka, 2-4 piosenki, 5+ piosenek. Anything counted MUST live here rather than
+         being assembled inline as "song" + "s", or it reads as broken Polish. -->
+    <plurals name="n_songs">
+        <item quantity="one">%d song</item>
+        <item quantity="other">%d songs</item>
+    </plurals>
+    <plurals name="n_albums">
+        <item quantity="one">%d album</item>
+        <item quantity="other">%d albums</item>
+    </plurals>
+    <plurals name="n_tracks">
+        <item quantity="one">%d track</item>
+        <item quantity="other">%d tracks</item>
+    </plurals>
+    <plurals name="n_files">
+        <item quantity="one">%d file</item>
+        <item quantity="other">%d files</item>
+    </plurals>
+    <plurals name="downloading_n_songs">
+        <item quantity="one">Downloading %d song</item>
+        <item quantity="other">Downloading %d songs</item>
+    </plurals>
+
     <!-- Player -->
     <string name="now_playing">Now Playing</string>
     <string name="queue">Queue</string>
+    <string name="queue_empty">Queue is empty</string>
+    <string name="queue_reorder_hint">Drag the handle to reorder</string>
+    <string name="queue_reorder">Reorder</string>
     <string name="up_next">Up next</string>
     <string name="no_next_song">No Next Song</string>
+    <string name="nothing_playing">Nothing playing</string>
     <string name="previous">Previous</string>
     <string name="next">Next</string>
     <string name="pause">Pause</string>
+    <string name="close">Close</string>
+    <string name="remove">Remove</string>
+    <string name="dismiss">Dismiss</string>
+    <string name="dock">Dock</string>
+    <string name="live_radio">Live Radio</string>
     <string name="skip_back_10">Skip back 10 seconds</string>
     <string name="skip_forward_10">Skip forward 10 seconds</string>
+    <string name="back_10s">Back 10s</string>
+    <string name="forward_10s">Forward 10s</string>
+    <string name="repeat">Repeat</string>
     <string name="repeat_off">Repeat off</string>
     <string name="repeat_all">Repeat all</string>
     <string name="repeat_one">Repeat one</string>
     <string name="shuffle_on">Shuffle on</string>
     <string name="shuffle_off">Shuffle off</string>
+    <string name="playback_speed">Playback speed</string>
+    <string name="sleep_timer">Sleep timer</string>
+    <string name="sleep_timer_off">Off</string>
+    <string name="player_settings">Playback settings</string>
+    <string name="navigate">Go to…</string>
+    <string name="go_to_artist">Go to artist</string>
+    <string name="skip_silence">Skip silence</string>
+    <string name="volume">Volume</string>
+
+    <!-- Lyrics -->
+    <string name="lyrics">Lyrics</string>
+    <string name="lyrics_view">View lyrics</string>
+    <string name="lyrics_none_short">No lyrics for this track</string>
+    <string name="lyrics_none">No lyrics found for this track.</string>
 
     <!-- Sections -->
     <string name="section_recently_added">Recently Added</string>
@@ -101,6 +152,118 @@
     <!-- Notification -->
     <string name="notif_channel_playback">Playback</string>
     <string name="notif_channel_downloads">Downloads</string>
+
+    <!-- Nav / tabs -->
+    <string name="tab_radio">Radio</string>
+    <string name="more">More</string>
+
+    <!-- Home -->
+    <string name="greeting_morning">Good morning</string>
+    <string name="greeting_afternoon">Good afternoon</string>
+    <string name="greeting_evening">Good evening</string>
+    <string name="home_prompt">What do you want to hear?</string>
+    <string name="home_continue_listening">Continue Listening</string>
+    <string name="home_freshly_added">Freshly added</string>
+    <string name="home_random_picks">Random picks</string>
+    <string name="home_my_playlists">My Playlists</string>
+    <string name="home_load_failed">Could not load home</string>
+    <string name="home_unreachable">Couldn\'t reach your library.</string>
+
+    <!-- Library / browse -->
+    <string name="lib_songs">Songs</string>
+    <string name="lib_genres">Genres</string>
+    <string name="lib_all_songs">All songs</string>
+    <string name="lib_shuffle_all">Shuffle all</string>
+    <string name="lib_empty">Library is empty</string>
+    <string name="lib_empty_body">Add music to your Navidrome server.</string>
+    <string name="lib_no_playlists">No playlists yet — tap above to create one.</string>
+    <string name="lib_create_first_playlist">Create your first playlist</string>
+    <string name="available_offline">Available offline</string>
+    <string name="streaming">Streaming</string>
+
+    <!-- Song / album / artist metadata labels -->
+    <string name="meta_album">Album</string>
+    <string name="meta_artist">Artist</string>
+    <string name="meta_track">Track</string>
+    <string name="meta_genre">Genre</string>
+    <string name="meta_year">Year</string>
+    <string name="meta_duration">Duration</string>
+    <string name="meta_format">Format</string>
+    <string name="meta_size">Size</string>
+    <string name="meta_path">Path</string>
+    <string name="meta_play_count">Play count</string>
+    <string name="meta_musicbrainz_id">MusicBrainz ID</string>
+    <string name="song_info">Song info</string>
+
+    <!-- Song actions -->
+    <string name="play_now">Play now</string>
+    <string name="start_song_radio">Start Song Radio</string>
+    <string name="song_radio_failed">Couldn\'t build a radio for this track</string>
+    <!-- %1$s is a song title -->
+    <string name="starting_radio_named">Starting radio from \"%1$s\"</string>
+    <string name="add_to_favorites">Add to favorites</string>
+    <string name="added_to_favorites">Added to favorites</string>
+    <string name="removed_from_favorites">Removed from favorites</string>
+    <string name="add_to_playlist">Add to playlist</string>
+    <string name="add_to_playlist_ellipsis">Add to playlist…</string>
+    <string name="added_to_playlist">Added to playlist</string>
+    <string name="remove_from_playlist">Remove from playlist</string>
+    <string name="go_to_album">Go to album</string>
+    <string name="added_to_queue">Added to queue</string>
+    <string name="queued_for_download">Queued for download</string>
+    <string name="remove_song_from_library">Remove song from library</string>
+    <!-- %1$s is a song/album/playlist name -->
+    <string name="added_to_named">Added to \"%1$s\"</string>
+    <string name="downloading_named">Downloading \"%1$s\"</string>
+    <string name="queued_named">Queued \"%1$s\"</string>
+    <string name="remove_named">Remove \"%1$s\"</string>
+    <string name="delete_named">Delete \"%1$s\"</string>
+    <string name="created_named">Created \"%1$s\"</string>
+
+    <!-- Playlist management -->
+    <string name="playlist_new">New playlist</string>
+    <string name="playlist_new_ellipsis">New playlist…</string>
+    <string name="playlist_name">Playlist name</string>
+    <string name="playlist_edit">Edit playlist…</string>
+    <string name="playlist_rename">Rename playlist</string>
+    <string name="playlist_renamed">Renamed</string>
+    <string name="playlist_delete">Delete playlist</string>
+    <string name="playlist_deleted">Playlist deleted</string>
+    <string name="playlist_delete_body">This permanently deletes the playlist from your library. The individual songs stay.</string>
+    <string name="playlist_description">Description</string>
+    <string name="playlist_add_description">Add description</string>
+    <string name="playlist_edit_description">Edit description</string>
+    <string name="playlist_description_saved">Description saved</string>
+    <string name="playlist_make_public">Make public</string>
+    <string name="playlist_make_private">Make private</string>
+    <string name="playlist_now_public">Now public</string>
+    <string name="playlist_now_private">Now private</string>
+    <string name="playlist_create_failed">Couldn\'t create playlist</string>
+    <string name="playlist_comment">Comment</string>
+
+    <!-- Server-side removal -->
+    <string name="remove_from_server_body">This permanently deletes the audio file from your server. </string>
+    <string name="remove_confirm_hint">Make sure you actually want it gone.</string>
+    <string name="remove_multiple_match">Multiple files match</string>
+    <string name="remove_pick_one">Pick the one you want to delete:</string>
+    <string name="remove_still_ambiguous">Still ambiguous — try again.</string>
+    <string name="not_in_your_library">Not in your library</string>
+
+    <!-- Search -->
+    <string name="search_hint_full">Songs, albums, artists, playlists…</string>
+    <string name="search_try_different">Try a different query.</string>
+    <string name="search_try_different_spotify">Try a different query, or enable Spotify discovery in Settings.</string>
+
+    <!-- Generic actions -->
+    <string name="save">Save</string>
+    <string name="create">Create</string>
+    <string name="rename">Rename</string>
+    <string name="delete">Delete</string>
+    <string name="confirm">Confirm</string>
+    <string name="clear">Clear</string>
+    <string name="add_failed">Couldn\'t add</string>
+    <string name="unknown_error">Unknown error</string>
+    <string name="storage_permission_hint">Grant storage access in Settings → Downloads first.</string>
 
     <!-- Downloads -->
     <string name="downloads_queued">Queued</string>

@@ -8,3 +8,12 @@ import androidx.compose.runtime.compositionLocalOf
  * having to query the DB per row.
  */
 val LocalDownloadedIds = compositionLocalOf<Set<String>> { emptySet() }
+
+/**
+ * The currently-playing song id paired with whether it's actively playing (vs paused).
+ * Collected once at the shell so every SongRow can show a now-playing indicator without
+ * each row subscribing to the player flows. `id` is null when nothing is loaded.
+ */
+data class NowPlaying(val id: String?, val playing: Boolean)
+
+val LocalNowPlaying = compositionLocalOf { NowPlaying(null, false) }

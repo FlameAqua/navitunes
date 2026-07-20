@@ -30,6 +30,7 @@ import ie.adrianszydlo.navitunes.ui.theme.Surface
 import ie.adrianszydlo.navitunes.ui.theme.SurfaceElev
 import ie.adrianszydlo.navitunes.ui.theme.Text4
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val MAX_ART_RETRIES = 2
 
@@ -41,7 +42,9 @@ fun ArtImage(
     cornerRadius: Dp = 8.dp,
     requestSize: Int = 300,
     /** Used when [coverId] is missing or fails to load (e.g. an artist → an album cover). */
-    fallbackCoverId: String? = null
+    fallbackCoverId: String? = null,
+    /** If set, the placeholder shows this icon instead of a letter (e.g. a radio glyph for streams). */
+    fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     val context = LocalContext.current
     val api = NavitunesApp.container().apiClient
@@ -88,28 +91,37 @@ fun ArtImage(
                 error = {
                     LaunchedEffect(attempt, usingFallback) {
                         when {
-                            attempt < MAX_ART_RETRIES -> { delay(1200); attempt++ }
+                            attempt < MAX_ART_RETRIES -> { delay(1200.milliseconds); attempt++ }
                             !usingFallback && fallbackId != null && primaryId != null -> {
                                 usingFallback = true; attempt = 0
                             }
                         }
                     }
-                    Fallback(letter)
+                    Fallback(letter, fallbackIcon)
                 },
-                loading = { Fallback(letter) }
+                loading = { Fallback(letter, fallbackIcon) }
             )
         } else {
-            Fallback(letter)
+            Fallback(letter, fallbackIcon)
         }
     }
 }
 
 @Composable
-private fun Fallback(letter: String) {
-    Text(
-        text = letter,
-        color = Text4,
-        fontSize = 38.sp,
-        style = MaterialTheme.typography.displayLarge
-    )
+private fun Fallback(letter: String, icon: androidx.compose.ui.graphics.vector.ImageVector?) {
+    if (icon != null) {
+        androidx.compose.material3.Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Text4,
+            modifier = Modifier.fillMaxSize(0.42f)
+        )
+    } else {
+        Text(
+            text = letter,
+            color = Text4,
+            fontSize = 38.sp,
+            style = MaterialTheme.typography.displayLarge
+        )
+    }
 }

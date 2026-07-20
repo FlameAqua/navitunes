@@ -31,7 +31,8 @@ data class SpotifyResult(
     val subtitle: String,       // artist line, or "Artist" for artist results
     val coverUrl: String?,
     val clipboardLine: String,  // what gets copied on tap
-    val matchArtist: String     // raw artist text used for library dedup ("" for artists)
+    val matchArtist: String,    // raw artist text used for library dedup ("" for artists)
+    val albumType: String? = null  // Spotify album_type: "album" / "single" / "compilation"
 )
 
 /**
@@ -237,7 +238,8 @@ class SpotifyClient(
                     subtitle = artistLine,
                     coverUrl = pickImage(a.images),
                     clipboardLine = if (artistLine.isBlank()) a.name else "$artistLine - ${a.name}",
-                    matchArtist = artistLine
+                    matchArtist = artistLine,
+                    albumType = a.album_type
                 )
             }
             SpotifyType.ARTIST -> resp.artists?.items.orEmpty().map { ar ->
@@ -356,7 +358,8 @@ class SpotifyClient(
         val id: String = "",
         val name: String = "",
         val artists: List<NameDto> = emptyList(),
-        val images: List<ImageDto> = emptyList()
+        val images: List<ImageDto> = emptyList(),
+        val album_type: String? = null
     )
 
     @Serializable

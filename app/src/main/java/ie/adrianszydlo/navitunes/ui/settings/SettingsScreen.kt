@@ -46,6 +46,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +67,7 @@ import ie.adrianszydlo.navitunes.ui.update.UpdateAvailableDialog
 import ie.adrianszydlo.navitunes.ui.theme.Accent
 import ie.adrianszydlo.navitunes.ui.theme.AccentOn
 import ie.adrianszydlo.navitunes.ui.theme.Danger
+import ie.adrianszydlo.navitunes.ui.theme.Success
 import ie.adrianszydlo.navitunes.ui.theme.Surface
 import ie.adrianszydlo.navitunes.ui.theme.SurfaceElev
 import ie.adrianszydlo.navitunes.ui.theme.Text2
@@ -88,7 +90,9 @@ fun SettingsScreen(
     val spotifyId by container.preferences.spotifyClientId.collectAsState(initial = null)
     val spotifySecret by container.preferences.spotifyClientSecret.collectAsState(initial = null)
     var editingSpotify by remember { mutableStateOf(false) }
-    var fixingMetadata by remember { mutableStateOf(false) }
+    // Server-owned fix progress: survives leaving/re-entering this screen.
+    val fixState by container.metadataFixManager.state.collectAsState()
+    LaunchedEffect(Unit) { container.metadataFixManager.refresh() }
     val ctx = LocalContext.current
     val notifier = ie.adrianszydlo.navitunes.ui.common.LocalNotifier.current
     // Which settings categories are expanded. Appearance + Profiles open by default.
@@ -181,18 +185,6 @@ fun SettingsScreen(
         }
 
         item {
-            SettingsSection("Playback", expanded) {
-                ToggleRow(
-                    icon = Icons.Outlined.GraphicEq,
-                    label = "Skip silence",
-                    description = "Trim silent gaps within and between tracks for tighter playback.",
-                    value = skipSilence,
-                    onChange = { scope.launch { container.preferences.setSkipSilence(it) } }
-                )
-            }
-        }
-
-        item {
             SettingsSection("Profiles", expanded) {
                 profiles.forEach { p ->
                     ProfileSettingsRow(
@@ -216,6 +208,18 @@ fun SettingsScreen(
                     Spacer(Modifier.size(8.dp))
                     Text("Add profile", color = Accent)
                 }
+            }
+        }
+
+        item {
+            SettingsSection("Playback", expanded) {
+                ToggleRow(
+                    icon = Icons.Outlined.GraphicEq,
+                    label = "Skip silence",
+                    description = "Trim silent gaps within and between tracks for tighter playback.",
+                    value = skipSilence,
+                    onChange = { scope.launch { container.preferences.setSkipSilence(it) } }
+                )
             }
         }
 
@@ -253,7 +257,7 @@ fun SettingsScreen(
                 )
                 ClickRow(
                     icon = Icons.Outlined.Download,
-                    label = "Manage downloads",
+                    label = "Manage device downloads",
                     onClick = onOpenDownloads
                 )
             }
@@ -450,34 +454,49 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Runs the server job that normalizes tags from MusicBrainz and " +
-                            "rescans — fixes split albums and inconsistent metadata. This also " +
-                            "runs automatically on a schedule; use this to trigger it now.",
+                        "Runs the server job that imports new files, normalizes tags from " +
+                            "MusicBrainz, applies genres, repoints playlists and does a full " +
+                            "rescan — so the app matches the server exactly. Also runs nightly.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Text3
                     )
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(
-                        enabled = !fixingMetadata,
-                        onClick = {
-                            fixingMetadata = true
-                            scope.launch {
-                                val msg = container.metadataFixService.triggerFix()
-                                fixingMetadata = false
-                                notifier.info(msg)
-                            }
-                        }
-                    ) {
-                        if (fixingMetadata) {
+                    Spacer(Modifier.height(10.dp))
+
+                    // Live progress, driven by the server — survives leaving this screen.
+                    if (fixState.running) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(
                                 color = Accent, strokeWidth = 2.dp,
                                 modifier = Modifier.size(16.dp)
                             )
-                            Spacer(Modifier.size(8.dp))
-                            Text("Starting…", color = Accent)
-                        } else {
-                            Text("Fix metadata now", color = Accent)
+                            Spacer(Modifier.size(10.dp))
+                            Text(fixState.label, style = MaterialTheme.typography.bodyMedium, color = Accent)
                         }
+                        if (fixState.steps > 0 && fixState.step > 0) {
+                            Spacer(Modifier.height(8.dp))
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { fixState.step.toFloat() / fixState.steps.toFloat() },
+                                color = Accent,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    } else if (fixState.ok != null) {
+                        Text(
+                            fixState.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (fixState.ok == true) Success else Danger
+                        )
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        enabled = !fixState.running,
+                        onClick = { container.metadataFixManager.start() }
+                    ) {
+                        Text(
+                            if (fixState.running) "Running…" else "Fix metadata now",
+                            color = if (fixState.running) Text3 else Accent
+                        )
                     }
                 }
             }
@@ -632,24 +651,42 @@ private fun SettingsSection(
         Row(
             Modifier
                 .fillMaxWidth()
-                .clickable { expandedMap[title] = !open }
-                .padding(start = 24.dp, end = 18.dp, top = 12.dp, bottom = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Only the title chip carries the tap ripple, so it reads as a rounded pill
+            // around the label rather than a full-width rectangle.
             Text(
                 title.uppercase(),
                 style = MaterialTheme.typography.labelMedium,
                 color = Text3,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { expandedMap[title] = !open }
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
             )
+            Spacer(Modifier.weight(1f))
             Icon(
                 Icons.Outlined.ExpandMore,
                 contentDescription = if (open) "Collapse" else "Expand",
                 tint = Text3,
-                modifier = Modifier.rotate(rotation).size(20.dp)
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable { expandedMap[title] = !open }
+                    .padding(6.dp)
+                    .rotate(rotation)
+                    .size(20.dp)
             )
         }
-        AnimatedVisibility(visible = open) {
+        AnimatedVisibility(
+            visible = open,
+            enter = androidx.compose.animation.expandVertically(
+                animationSpec = tween(280, easing = ie.adrianszydlo.navitunes.ui.common.Motion.Standard)
+            ) + androidx.compose.animation.fadeIn(tween(220)),
+            exit = androidx.compose.animation.shrinkVertically(
+                animationSpec = tween(240, easing = ie.adrianszydlo.navitunes.ui.common.Motion.Standard)
+            ) + androidx.compose.animation.fadeOut(tween(160))
+        ) {
             Group { content() }
         }
     }

@@ -472,30 +472,41 @@ private fun PlaylistsSection(
 
 @Composable
 private fun PlaylistCard(playlist: Playlist, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .size(width = 152.dp, height = 202.dp)
-            .clickableScaled(onClick = onClick)
-    ) {
-        ArtImage(
-            coverId = playlist.coverArt,
-            fallback = playlist.name,
-            modifier = Modifier.size(152.dp),
-            cornerRadius = 14.dp,
-            requestSize = 300
-        )
-        Spacer(Modifier.height(10.dp))
-        Text(
-            playlist.name,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            "${playlist.songCount} song${if (playlist.songCount == 1) "" else "s"}",
-            style = MaterialTheme.typography.bodySmall,
-            color = Text2
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        Column(
+            modifier = Modifier
+                .size(width = 152.dp, height = 202.dp)
+                .combinedClickableScaled(
+                    onClick = onClick,
+                    onLongClick = { menuOpen = true }
+                )
+        ) {
+            ArtImage(
+                coverId = playlist.coverArt,
+                fallback = playlist.name,
+                modifier = Modifier.size(152.dp),
+                cornerRadius = 14.dp,
+                requestSize = 300
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                playlist.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${playlist.songCount} song${if (playlist.songCount == 1) "" else "s"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = Text2
+            )
+        }
+        ie.adrianszydlo.navitunes.ui.common.PlaylistActionsMenu(
+            expanded = menuOpen,
+            onDismiss = { menuOpen = false },
+            playlist = playlist
         )
     }
 }

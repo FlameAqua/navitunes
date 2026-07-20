@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.DownloadDone
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -87,7 +88,8 @@ private fun Modifier.artShadow(corner: Dp): Modifier =
 private fun MediaActionsMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
-    loadSongs: suspend () -> List<Song>
+    loadSongs: suspend () -> List<Song>,
+    extraItems: @Composable () -> Unit = {}
 ) {
     val controller = LocalPlayerController.current
     val notifier = LocalNotifier.current
@@ -128,6 +130,7 @@ private fun MediaActionsMenu(
                 }
             }
         )
+        extraItems()
     }
 }
 
@@ -433,6 +436,9 @@ fun ArtistRow(artist: Artist, onClick: () -> Unit, modifier: Modifier = Modifier
         ) {
             ArtImage(
                 coverId = artist.coverArt,
+                // search3 often omits coverArt for artists; Navidrome resolves the
+                // artist's own id to its image, so use that as the fallback.
+                fallbackCoverId = artist.id,
                 fallback = artist.name,
                 modifier = Modifier.size(48.dp),
                 cornerRadius = 24.dp,
@@ -491,12 +497,33 @@ fun PlaylistRow(playlist: Playlist, onClick: () -> Unit, modifier: Modifier = Mo
                 )
             }
         }
-        MediaActionsMenu(
-            expanded = menuOpen,
-            onDismiss = { menuOpen = false },
-            loadSongs = { NavitunesApp.container().libraryRepository.playlist(playlist.id).entry }
-        )
+        PlaylistActionsMenu(expanded = menuOpen, onDismiss = { menuOpen = false }, playlist = playlist)
     }
+}
+
+/**
+ * Long-press menu for a playlist — the media actions (play next / queue / download)
+ * plus "Edit playlist…" which opens the management sheet. Public so any playlist host
+ * (Library rows, Home cards) shows the same context menu.
+ */
+@Composable
+fun PlaylistActionsMenu(expanded: Boolean, onDismiss: () -> Unit, playlist: Playlist) {
+    val manage = ie.adrianszydlo.navitunes.ui.nav.LocalManagePlaylistRequest.current
+    MediaActionsMenu(
+        expanded = expanded,
+        onDismiss = onDismiss,
+        loadSongs = { NavitunesApp.container().libraryRepository.playlist(playlist.id).entry },
+        extraItems = {
+            DropdownMenuItem(
+                text = { Text("Edit playlist…") },
+                leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
+                onClick = {
+                    onDismiss()
+                    manage(ie.adrianszydlo.navitunes.ui.nav.ManagePlaylistRequest(playlist))
+                }
+            )
+        }
+    )
 }
 
 /**

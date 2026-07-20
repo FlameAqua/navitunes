@@ -41,6 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -99,20 +100,9 @@ fun LibraryScreen(
     var tab by remember { mutableStateOf(LibTab.Albums) }
     var state by remember { mutableStateOf<TabState>(TabState.Loading) }
     var refreshing by remember { mutableStateOf(false) }
-    var genreSheet by remember { mutableStateOf<String?>(null) }
-    var refetchingMeta by remember { mutableStateOf(false) }
-    val notifier = ie.adrianszydlo.navitunes.ui.common.LocalNotifier.current
+    var songSheet by remember { mutableStateOf<GenreSongRequest?>(null) }
+    var genreView by remember { mutableStateOf(GenreView.Categories) }
     val scope = rememberCoroutineScope()
-    val refetchMetadata = {
-        if (!refetchingMeta) {
-            refetchingMeta = true
-            scope.launch {
-                val msg = NavitunesApp.container().metadataFixService.triggerFix()
-                refetchingMeta = false
-                notifier.info(msg)
-            }
-        }
-    }
 
     suspend fun loadNow(t: LibTab, silent: Boolean) {
         if (!silent) state = TabState.Loading
@@ -157,7 +147,18 @@ fun LibraryScreen(
 
         PullToRefreshBox(
             isRefreshing = refreshing,
-            onRefresh = { scope.launch { refreshing = true; loadNow(tab, silent = true); refreshing = false } },
+            onRefresh = {
+                scope.launch {
+                    refreshing = true
+                    // Keep the indicator up long enough to read as a refresh even when the
+                    // fetch returns almost instantly (cached / fast network).
+                    val start = System.currentTimeMillis()
+                    loadNow(tab, silent = true)
+                    val elapsed = System.currentTimeMillis() - start
+                    if (elapsed < 600) kotlinx.coroutines.delay(600 - elapsed)
+                    refreshing = false
+                }
+            },
             modifier = Modifier.fillMaxSize()
         ) {
             when (val s = state) {
@@ -173,24 +174,37 @@ fun LibraryScreen(
                 is TabState.Playlists -> PlaylistsList(s.list, onPlaylist)
                 is TabState.Genres -> GenresList(
                     genres = s.list,
-                    onPickGenre = { genreSheet = it },
-                    onRefetch = refetchMetadata,
-                    refetching = refetchingMeta
+                    view = genreView,
+                    onViewChange = { genreView = it },
+                    onPickGenre = { g ->
+                        songSheet = GenreSongRequest(g) { repo.songsByGenre(g) }
+                    },
+                    onPickCategory = { cat ->
+                        songSheet = GenreSongRequest(cat.name) { repo.songsByGenres(cat.genres) }
+                    }
                 )
                 is TabState.Favorites -> FavoritesContent(s.starred, onAlbum, onPlay)
             }
         }
     }
 
-    genreSheet?.let { genre ->
+    songSheet?.let { req ->
         GenreSongsSheet(
-            genre = genre,
+            request = req,
             onAlbum = onAlbum,
             onPlay = onPlay,
-            onDismiss = { genreSheet = null }
+            onDismiss = { songSheet = null }
         )
     }
 }
+
+/** A request to open the song sheet: a title (genre or category) + a lazy loader. */
+private class GenreSongRequest(
+    val title: String,
+    val loader: suspend () -> List<Song>
+)
+
+private enum class GenreView(val label: String) { Categories("Categories"), All("All genres") }
 
 @Composable
 private fun TabRow(current: LibTab, onSelect: (LibTab) -> Unit) {
@@ -349,72 +363,117 @@ private fun FavoritesContent(
 @Composable
 private fun GenresList(
     genres: List<GenreEntry>,
+    view: GenreView,
+    onViewChange: (GenreView) -> Unit,
     onPickGenre: (String) -> Unit,
-    onRefetch: () -> Unit,
-    refetching: Boolean
+    onPickCategory: (GenreCategories.Category) -> Unit
 ) {
-    val sparse = genres.size <= 1
-    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 200.dp)) {
-        item {
-            // Re-tag the whole library on the server (beets + MusicBrainz) so genres fill in.
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (sparse) "Genres look sparse" else "Genres",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        "Re-fetch metadata to tag your library from MusicBrainz.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Text3
-                    )
-                }
-                Button(
-                    onClick = onRefetch,
-                    enabled = !refetching,
-                    colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = AccentOn)
-                ) {
-                    Text(if (refetching) "Starting…" else "Re-fetch", fontWeight = FontWeight.SemiBold)
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-        if (genres.isEmpty()) {
-            item {
+    val categories = remember(genres) { GenreCategories.categorize(genres) }
+
+    Column(Modifier.fillMaxSize()) {
+        // Categories | All genres toggle. (Metadata re-fetch lives in Settings → Maintenance.)
+        Row(
+            Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            GenreView.entries.forEach { v ->
+                val selected = v == view
+                val bg by animateColorAsState(if (selected) Accent else Surface, tween(220), label = "genreViewBg")
+                val fg by animateColorAsState(if (selected) AccentOn else Text2, tween(220), label = "genreViewFg")
                 Text(
-                    "No genre tags found yet.",
+                    v.label,
+                    color = fg,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Text3,
-                    modifier = Modifier.padding(vertical = 24.dp)
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(bg)
+                        .clickable { onViewChange(v) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
         }
-        items(genres, key = { it.value }) { g ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onPickGenre(g.value) }
-                    .padding(vertical = 14.dp, horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
+
+        if (genres.isEmpty()) {
+            Text(
+                "No genre tags found yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Text3,
+                modifier = Modifier.padding(20.dp)
+            )
+            return
+        }
+
+        when (view) {
+            GenreView.Categories -> LazyColumn(
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 200.dp)
             ) {
-                Text(
-                    g.value,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    "${g.songCount} song${if (g.songCount == 1) "" else "s"}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Text2
-                )
+                items(categories, key = { it.name }) { cat ->
+                    // No track total here: songs with multiple genres get counted once per
+                    // genre, so a summed total would overstate and mismatch the opened list.
+                    GenreRow(
+                        title = cat.name,
+                        count = null,
+                        subtitle = if (cat.name == GenreCategories.UNCATEGORIZED)
+                            "Untagged or generic \"Music\" tags"
+                        else "${cat.genres.size} genre${if (cat.genres.size == 1) "" else "s"}",
+                        onClick = { onPickCategory(cat) }
+                    )
+                }
             }
+            GenreView.All -> {
+                val sorted = remember(genres) { genres.sortedBy { it.value.lowercase() } }
+                val letterIndex = remember(sorted) { buildLetterIndex(sorted.map { it.value }) }
+                val listState = rememberLazyListState()
+                val scope = rememberCoroutineScope()
+                Box(Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(start = 20.dp, end = 28.dp, top = 2.dp, bottom = 200.dp)
+                    ) {
+                        items(sorted, key = { it.value }) { g ->
+                            val display = if (g.value.equals("Music", ignoreCase = true))
+                                "Music (untagged)" else g.value
+                            GenreRow(
+                                title = display,
+                                count = g.songCount,
+                                subtitle = null,
+                                onClick = { onPickGenre(g.value) }
+                            )
+                        }
+                    }
+                    AlphabetScrollbar(
+                        activeLetters = letterIndex.keys,
+                        onSelect = { c -> letterIndex[c]?.let { scope.launch { listState.scrollToItem(it) } } },
+                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GenreRow(title: String, count: Int?, subtitle: String?, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            if (subtitle != null) {
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Text3)
+            }
+        }
+        if (count != null) {
+            Text(
+                "$count song${if (count == 1) "" else "s"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = Text2
+            )
         }
     }
 }
@@ -422,25 +481,40 @@ private fun GenresList(
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun GenreSongsSheet(
-    genre: String,
+    request: GenreSongRequest,
     onAlbum: (String) -> Unit,
     onPlay: (List<Song>, Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     val controller = LocalPlayerController.current
-    val repo = NavitunesApp.container().libraryRepository
-    var songs by remember(genre) { mutableStateOf<List<Song>?>(null) }
-    LaunchedEffect(genre) { songs = runCatching { repo.songsByGenre(genre) }.getOrNull() ?: emptyList() }
+    var songs by remember(request) { mutableStateOf<List<Song>?>(null) }
+    LaunchedEffect(request) { songs = runCatching { request.loader() }.getOrNull() ?: emptyList() }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Bg, dragHandle = null) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        dragHandle = null,
+        sheetGesturesEnabled = false
+    ) {
+        val dismiss = ie.adrianszydlo.navitunes.ui.common.rememberSheetDismiss(onDismiss)
+        // The card carries its own background so it slides as one with the drag.
+        Column(
+            Modifier
+                .then(dismiss.contentModifier)
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(Bg)
+        ) {
+        ie.adrianszydlo.navitunes.ui.common.SheetDragHandle(state = dismiss)
         Column(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
-                .padding(top = 8.dp, bottom = 16.dp)
+                .padding(top = 0.dp, bottom = 16.dp)
         ) {
-            Text(genre, style = MaterialTheme.typography.displayMedium, color = TextHi, maxLines = 1)
+            Text(request.title, style = MaterialTheme.typography.displayMedium, color = TextHi, maxLines = 1)
             val list = songs
             Text(
                 if (list == null) "Loading…" else "${list.size} song${if (list.size == 1) "" else "s"}",
@@ -491,6 +565,7 @@ private fun GenreSongsSheet(
                     }
                 }
             }
+        }
         }
     }
 }

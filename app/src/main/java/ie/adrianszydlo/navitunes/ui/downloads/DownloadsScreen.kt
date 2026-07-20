@@ -86,8 +86,11 @@ fun DownloadsScreen(
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Text2)
             }
             Text(
-                "Downloads",
-                style = MaterialTheme.typography.displayMedium,
+                "Device Downloads",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
             if (downloads.isNotEmpty()) {

@@ -48,7 +48,8 @@ fun DetailHeader(
     meta: String,
     coverArt: String?,
     onBack: () -> Unit,
-    trailing: (@Composable () -> Unit)? = null
+    trailing: (@Composable () -> Unit)? = null,
+    fallbackCoverArt: String? = null
 ) {
     val bg = NavTheme.colors.bg
     Box(Modifier.fillMaxWidth()) {
@@ -56,6 +57,7 @@ fun DetailHeader(
         ArtImage(
             coverId = coverArt,
             fallback = title,
+            fallbackCoverId = fallbackCoverArt,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(340.dp)
@@ -104,6 +106,7 @@ fun DetailHeader(
                     ArtImage(
                         coverId = coverArt,
                         fallback = title,
+                        fallbackCoverId = fallbackCoverArt,
                         modifier = Modifier.fillMaxSize(),
                         cornerRadius = 14.dp,
                         requestSize = 400

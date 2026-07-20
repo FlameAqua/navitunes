@@ -1,6 +1,7 @@
 package ie.adrianszydlo.navitunes.ui.player
 
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.input.pointer.pointerInput
@@ -34,6 +35,32 @@ fun Modifier.swipeToSkip(
             },
             onDragCancel = { totalDx = 0f },
             onHorizontalDrag = { _, dx -> totalDx += dx }
+        )
+    }
+}
+
+/**
+ * Upward-swipe gesture — used on the mini-player to morph it into the floating bubble
+ * (matching the long-press action). Fires once accumulated upward travel passes 48dp.
+ * Coexists with [swipeToSkip]: horizontal and vertical detectors disambiguate by axis.
+ */
+fun Modifier.swipeUp(onSwipeUp: () -> Unit): Modifier = composed {
+    val density = LocalDensity.current
+    val thresholdPx = with(density) { 48.dp.toPx() }
+    pointerInput(Unit) {
+        var totalDy = 0f
+        var fired = false
+        detectVerticalDragGestures(
+            onDragStart = { totalDy = 0f; fired = false },
+            onDragEnd = { totalDy = 0f; fired = false },
+            onDragCancel = { totalDy = 0f; fired = false },
+            onVerticalDrag = { _, dy ->
+                totalDy += dy
+                if (!fired && totalDy <= -thresholdPx) {
+                    fired = true
+                    onSwipeUp()
+                }
+            }
         )
     }
 }

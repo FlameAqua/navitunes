@@ -4,6 +4,7 @@ object Routes {
     const val HOME = "home"
     const val LIBRARY = "library"
     const val SEARCH = "search"
+    const val RADIO = "radio"
     const val SETTINGS = "settings"
     const val DOWNLOADS = "downloads"
     const val DOWNLOAD_MANAGER = "download_manager"

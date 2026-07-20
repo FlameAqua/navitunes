@@ -49,6 +49,10 @@ class AppContainer(private val appContext: Context) {
 
     val spotifyClient: SpotifyClient by lazy { SpotifyClient(apiClient.okHttp, preferences) }
 
+    val lrcLibService: ie.adrianszydlo.navitunes.data.lyrics.LrcLibService by lazy {
+        ie.adrianszydlo.navitunes.data.lyrics.LrcLibService(apiClient.okHttp)
+    }
+
     val downloadService: DownloadService by lazy {
         DownloadService(apiClient.okHttp, profileStore, preferences)
     }
@@ -58,6 +62,9 @@ class AppContainer(private val appContext: Context) {
 
     val metadataFixService: MetadataFixService by lazy {
         MetadataFixService(apiClient.okHttp, profileStore, preferences)
+    }
+    val metadataFixManager: ie.adrianszydlo.navitunes.data.remote.MetadataFixManager by lazy {
+        ie.adrianszydlo.navitunes.data.remote.MetadataFixManager(appScope, metadataFixService, librarySignals)
     }
 
     val updateService: UpdateService by lazy { UpdateService(apiClient.okHttp) }

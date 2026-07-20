@@ -77,6 +77,19 @@ class LibraryRepository(private val api: ApiClient) {
             .songsByGenre?.song.orEmpty()
     }
 
+    /**
+     * Songs across several genres (a compound category), deduplicated by id. Fetches
+     * each genre's songs sequentially and concatenates; used by the Genres "category"
+     * view where one card spans many raw genre tags.
+     */
+    suspend fun songsByGenres(genres: List<String>, perGenre: Int = 200): List<Song> =
+        withContext(Dispatchers.IO) {
+            val seen = HashSet<String>()
+            genres.flatMap { g ->
+                runCatching { songsByGenre(g, perGenre) }.getOrDefault(emptyList())
+            }.filter { seen.add(it.id) }
+        }
+
     /** Full metadata for one song (getSong.view returns more fields than list endpoints). */
     suspend fun song(id: String): Song? = withContext(Dispatchers.IO) {
         runCatching { api.call("getSong.view", mapOf("id" to id)).song }.getOrNull()
@@ -183,6 +196,96 @@ class LibraryRepository(private val api: ApiClient) {
     suspend fun deletePlaylist(playlistId: String) = withContext(Dispatchers.IO) {
         api.call("deletePlaylist.view", mapOf("id" to playlistId))
         Unit
+    }
+
+    /**
+     * Updates a playlist's metadata (name / comment / public flag) via
+     * `updatePlaylist.view`. Only the provided fields are sent, so this never
+     * touches the song list. Navidrome has no API for a custom cover image, so
+     * that isn't offered.
+     */
+    suspend fun updatePlaylistMeta(
+        playlistId: String,
+        name: String? = null,
+        comment: String? = null,
+        public: Boolean? = null
+    ) = withContext(Dispatchers.IO) {
+        val params = buildMap {
+            put("playlistId", playlistId)
+            if (name != null) put("name", name)
+            if (comment != null) put("comment", comment)
+            if (public != null) put("public", public.toString())
+        }
+        api.call("updatePlaylist.view", params)
+        Unit
+    }
+
+    /** Internet radio stations configured on the Navidrome server. */
+    suspend fun internetRadioStations(): List<ie.adrianszydlo.navitunes.data.api.InternetRadioStation> =
+        withContext(Dispatchers.IO) {
+            api.call("getInternetRadioStations.view")
+                .internetRadioStations?.internetRadioStation.orEmpty()
+        }
+
+    /** Adds a new internet radio station. */
+    suspend fun createInternetRadioStation(name: String, streamUrl: String, homepageUrl: String?) =
+        withContext(Dispatchers.IO) {
+            api.call("createInternetRadioStation.view", buildMap {
+                put("name", name)
+                put("streamUrl", streamUrl)
+                if (!homepageUrl.isNullOrBlank()) put("homepageUrl", homepageUrl)
+            })
+            Unit
+        }
+
+    /** Edits an existing internet radio station. */
+    suspend fun updateInternetRadioStation(id: String, name: String, streamUrl: String, homepageUrl: String?) =
+        withContext(Dispatchers.IO) {
+            api.call("updateInternetRadioStation.view", buildMap {
+                put("id", id)
+                put("name", name)
+                put("streamUrl", streamUrl)
+                if (!homepageUrl.isNullOrBlank()) put("homepageUrl", homepageUrl)
+            })
+            Unit
+        }
+
+    /** Removes an internet radio station. */
+    suspend fun deleteInternetRadioStation(id: String) = withContext(Dispatchers.IO) {
+        api.call("deleteInternetRadioStation.view", mapOf("id" to id))
+        Unit
+    }
+
+    /**
+     * Songs similar to [songId] (getSimilarSongs2, falling back to getSimilarSongs).
+     * Powers "song radio". Quality depends on Navidrome's similarity data (Last.fm).
+     */
+    suspend fun similarSongs(songId: String, count: Int = 50): List<Song> = withContext(Dispatchers.IO) {
+        val params = mapOf("id" to songId, "count" to count.toString())
+        val v2 = runCatching { api.call("getSimilarSongs2.view", params).similarSongs2?.song }.getOrNull()
+        if (!v2.isNullOrEmpty()) return@withContext v2
+        runCatching { api.call("getSimilarSongs.view", params).similarSongs?.song }.getOrNull().orEmpty()
+    }
+
+    /** An artist's most-played tracks by name (getTopSongs). Used for "artist radio". */
+    suspend fun topSongs(artistName: String, count: Int = 50): List<Song> = withContext(Dispatchers.IO) {
+        runCatching {
+            api.call("getTopSongs.view", mapOf("artist" to artistName, "count" to count.toString()))
+                .topSongs?.song
+        }.getOrNull().orEmpty()
+    }
+
+    /**
+     * Every track by an artist that exists in the library, gathered by expanding the
+     * artist's albums. Navidrome's `getArtist` only returns albums, so this fetches
+     * each album's songs and concatenates them in album order. Deduplicated by song id.
+     */
+    suspend fun artistSongs(artistId: String): List<Song> = withContext(Dispatchers.IO) {
+        val artist = runCatching { artist(artistId) }.getOrNull() ?: return@withContext emptyList()
+        val seen = HashSet<String>()
+        artist.album.flatMap { al ->
+            runCatching { album(al.id).song }.getOrDefault(emptyList())
+        }.filter { seen.add(it.id) }
     }
 
     /**

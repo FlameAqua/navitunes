@@ -48,7 +48,8 @@ fun MiniPlayer(
     controller: PlayerController,
     modifier: Modifier = Modifier,
     onExpand: () -> Unit,
-    onLongPress: () -> Unit = {}
+    onLongPress: () -> Unit = {},
+    onSwipeUp: () -> Unit = {}
 ) {
     val current by controller.currentItem.collectAsStateWithLifecycle()
     val playing by controller.isPlaying.collectAsStateWithLifecycle()
@@ -68,6 +69,7 @@ fun MiniPlayer(
                 onSwipeLeft = { controller.next() },
                 onSwipeRight = { controller.prev() }
             )
+            .swipeUp(onSwipeUp = onSwipeUp)
             .padding(8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

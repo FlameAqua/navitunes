@@ -8,13 +8,16 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.outlined.Radio
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -37,7 +40,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -76,6 +81,7 @@ import ie.adrianszydlo.navitunes.ui.common.LocalNotifier
 import ie.adrianszydlo.navitunes.ui.common.NavSnackbarHost
 import ie.adrianszydlo.navitunes.ui.common.Notifier
 import ie.adrianszydlo.navitunes.ui.theme.Accent
+import ie.adrianszydlo.navitunes.ui.theme.AccentOn
 import kotlinx.coroutines.flow.first
 import ie.adrianszydlo.navitunes.ui.theme.Text3
 
@@ -138,6 +144,7 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
     var songForPlaylist by remember { mutableStateOf<Song?>(null) }
     var songForRemoval by remember { mutableStateOf<Song?>(null) }
     var songForInfo by remember { mutableStateOf<Song?>(null) }
+    var playlistToManage by remember { mutableStateOf<ManagePlaylistRequest?>(null) }
     var ambiguousRemoval by remember {
         mutableStateOf<Pair<Song, ie.adrianszydlo.navitunes.data.upload.UploadService.Result.Ambiguous>?>(null)
     }
@@ -146,6 +153,7 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
     val openPicker: (Song) -> Unit = remember { { song -> songForPlaylist = song } }
     val openRemove: (Song) -> Unit = remember { { song -> songForRemoval = song } }
     val openInfo: (Song) -> Unit = remember { { song -> songForInfo = song } }
+    val openManagePlaylist: (ManagePlaylistRequest) -> Unit = remember { { req -> playlistToManage = req } }
 
     val snackHost = remember { SnackbarHostState() }
     val notifier = remember(snackHost, scope) { Notifier(snackHost, scope) }
@@ -180,11 +188,15 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
 
     // Check GitHub for a newer release once per launch. Respects a version the
     // user chose to skip; the manual check in Settings ignores that skip.
-    LaunchedEffect(Unit) {
-        val skipped = container.preferences.skippedUpdateVersion.first()
-        val status = container.updateService.check()
-        if (status is UpdateStatus.Available && status.versionName != skipped) {
-            updateAvailable = status
+    // Skipped entirely on dev builds — the `-dev` build always compares "older"
+    // than the latest release and would nag on every launch.
+    if (!ie.adrianszydlo.navitunes.BuildConfig.DEBUG) {
+        LaunchedEffect(Unit) {
+            val skipped = container.preferences.skippedUpdateVersion.first()
+            val status = container.updateService.check()
+            if (status is UpdateStatus.Available && status.versionName != skipped) {
+                updateAvailable = status
+            }
         }
     }
 
@@ -193,6 +205,7 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
         LocalAddToPlaylistRequest provides openPicker,
         LocalRemoveSongRequest provides openRemove,
         LocalSongInfoRequest provides openInfo,
+        LocalManagePlaylistRequest provides openManagePlaylist,
         LocalDownloadedIds provides downloadedIds,
         LocalNotifier provides notifier
     ) {
@@ -204,6 +217,10 @@ private fun MainShell(controller: PlayerController, onAddProfile: () -> Unit) {
 
         songForInfo?.let { song ->
             SongInfoDialog(song = song, onDismiss = { songForInfo = null })
+        }
+
+        playlistToManage?.let { req ->
+            ManagePlaylistSheet(request = req, onDismiss = { playlistToManage = null })
         }
 
         songForRemoval?.let { song ->
@@ -370,6 +387,11 @@ private fun MainShellInner(
                         onOpenDownloadManager = { nav.navigate(Routes.DOWNLOAD_MANAGER) }
                     )
                 }
+                composable(Routes.RADIO) {
+                    ie.adrianszydlo.navitunes.ui.radio.RadioScreen(
+                        onPlay = { songs, idx -> controller.play(songs, idx) }
+                    )
+                }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(
                         onAddProfile = onAddProfile,
@@ -383,7 +405,13 @@ private fun MainShellInner(
                     )
                 }
                 composable(Routes.DOWNLOAD_MANAGER) {
-                    DownloadManagerScreen(onBack = { nav.popBackStack() })
+                    DownloadManagerScreen(
+                        onBack = { nav.popBackStack() },
+                        onOpenAlbum = { nav.navigate(Routes.album(it)) },
+                        onOpenArtist = { nav.navigate(Routes.artist(it)) },
+                        onOpenPlaylist = { nav.navigate(Routes.playlist(it)) },
+                        onPlay = { songs, idx -> controller.play(songs, idx) }
+                    )
                 }
                 composable(
                     Routes.ALBUM,
@@ -393,7 +421,8 @@ private fun MainShellInner(
                     AlbumScreen(
                         id = id,
                         onBack = { nav.popBackStack() },
-                        onPlay = { songs, idx -> controller.play(songs, idx) }
+                        onPlay = { songs, idx -> controller.play(songs, idx) },
+                        onOpenDownloadManager = { nav.navigate(Routes.DOWNLOAD_MANAGER) }
                     )
                 }
                 composable(
@@ -404,7 +433,9 @@ private fun MainShellInner(
                     ArtistScreen(
                         id = id,
                         onBack = { nav.popBackStack() },
-                        onAlbum = { aid -> nav.navigate(Routes.album(aid)) }
+                        onAlbum = { aid -> nav.navigate(Routes.album(aid)) },
+                        onPlay = { songs, idx -> controller.play(songs, idx) },
+                        onOpenDownloadManager = { nav.navigate(Routes.DOWNLOAD_MANAGER) }
                     )
                 }
                 composable(
@@ -446,16 +477,24 @@ private fun MainShellInner(
     }
 
     if (showFullPlayer && current != null) {
-        FullPlayerSheet(controller = controller, onDismiss = { showFullPlayer = false })
+        FullPlayerSheet(
+            controller = controller,
+            onDismiss = { showFullPlayer = false },
+            onOpenAlbum = { id -> nav.navigate(Routes.album(id)) },
+            onOpenArtist = { id -> nav.navigate(Routes.artist(id)) }
+        )
     }
 }
 
 @Composable
 private fun BottomBar(currentRoute: String?, onSelect: (String) -> Unit) {
+    // Search sits dead-centre and is emphasised (accent-filled) — it's the app's
+    // primary action. Order: Home · Library · Search · Radio · Settings.
     val items = listOf(
         Triple(Routes.HOME, Icons.Outlined.Home, "Home"),
         Triple(Routes.LIBRARY, Icons.Outlined.LibraryMusic, "Library"),
         Triple(Routes.SEARCH, Icons.Outlined.Search, "Search"),
+        Triple(Routes.RADIO, Icons.Outlined.Radio, "Radio"),
         Triple(Routes.SETTINGS, Icons.Outlined.Settings, "Settings")
     )
     NavigationBar(
@@ -464,6 +503,7 @@ private fun BottomBar(currentRoute: String?, onSelect: (String) -> Unit) {
     ) {
         items.forEach { (route, icon, label) ->
             val selected = currentRoute == route || (currentRoute == null && route == Routes.HOME)
+            val isSearch = route == Routes.SEARCH
             val iconScale by animateFloatAsState(
                 targetValue = if (selected) 1.12f else 1f,
                 animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
@@ -472,14 +512,31 @@ private fun BottomBar(currentRoute: String?, onSelect: (String) -> Unit) {
             NavigationBarItem(
                 selected = selected,
                 onClick = { onSelect(route) },
-                icon = { Icon(icon, contentDescription = label, modifier = Modifier.scale(iconScale)) },
-                label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                icon = {
+                    if (isSearch) {
+                        // Elevated accent pill so Search reads as the central, primary action.
+                        Box(
+                            Modifier
+                                .scale(iconScale)
+                                .size(48.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(Accent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(icon, contentDescription = label, tint = AccentOn)
+                        }
+                    } else {
+                        Icon(icon, contentDescription = label, modifier = Modifier.scale(iconScale))
+                    }
+                },
+                label = if (isSearch) null else { { Text(label, style = MaterialTheme.typography.labelMedium) } },
+                alwaysShowLabel = !isSearch,
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = Accent,
                     selectedTextColor = Accent,
                     unselectedIconColor = Text3,
                     unselectedTextColor = Text3,
-                    indicatorColor = Accent.copy(alpha = 0.14f)
+                    indicatorColor = if (isSearch) Color.Transparent else Accent.copy(alpha = 0.14f)
                 )
             )
         }

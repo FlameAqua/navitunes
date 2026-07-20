@@ -3,11 +3,15 @@
 Native **Android** (Kotlin + Jetpack Compose, Material3) client for a self-hosted
 **Navidrome / Subsonic** server, plus a companion homelab **upload server** (spotdl
 downloads, uploads, beets metadata). Package root `ie.adrianszydlo.navitunes`.
-Current release **v0.5.0**.
+Current release **v0.6.0**.
 
 **Full architecture, endpoints, and server-side details:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Read it before non-trivial work — it covers the theming token trick, the server-download
 queue, the two servers, and the beets pipeline gotchas.
+
+**Server upkeep / troubleshooting:** [docs/MAINTENANCE.md](docs/MAINTENANCE.md) — the runbook for
+beets, spotdl, playlists, duplicates and the fix pipeline. Read it before advising on anything
+server-side; several classes of bug there look like app bugs but aren't.
 
 ## Fast facts
 - **DI:** hand-wired `AppContainer` (no framework); access via `NavitunesApp.container()`.
@@ -18,9 +22,19 @@ queue, the two servers, and the beets pipeline gotchas.
 - **Theming:** colours are theme-reactive tokens. `Accent`/`Text3`/`Surface` etc. are
   `@Composable @ReadOnlyComposable` getter vals reading `LocalNavColors.current` — do NOT
   turn them back into constants (breaks light/dark/Sequoia + the theme crossfade).
-- **Downloads = two unrelated things:** `data/offline/` (copy library songs to phone) vs
-  `data/remote/` (server fetches new music from Spotify via spotdl — single-flight, 202 +
-  poll-to-done, retry/backoff; don't rewrite the resilience logic).
+- **Downloads = two unrelated things:** `data/offline/` = **Device Downloads** (copy library songs
+  to phone) vs `data/remote/` = **Server Downloads** (server fetches new music from Spotify via
+  spotdl — 202 + poll-to-done, retry/backoff; don't rewrite the resilience logic). The server now
+  **queues** concurrent requests instead of 409-rejecting them.
+- **Playlists are m3u-backed and fragile.** They live in `/music/Uploads/*.m3u8` with paths
+  *relative to that folder*, and beets **moves** the audio out of it. `fix-playlist-paths.sh` runs
+  in the fix pipeline (after the move, before the rescan) to repoint them. If a playlist "loses"
+  its songs, that's the cause — see MAINTENANCE.md §5.1, don't go hunting in app code.
+- **Never auto-delete on a fuzzy duplicate match.** Many singles share `albumartist = Various
+  Artists`, so grouping by albumartist+title collides *distinct* songs. Group by `$artist`.
+- **Navidrome quirks that look like app bugs:** album `songCount` can exceed the tracks it returns
+  (phantom rows — needs `fullScan=true`); `search3` omits artist `coverArt` (fall back to the
+  artist id); genre counts double-count multi-genre songs.
 
 ## Build / debug
 ```bash

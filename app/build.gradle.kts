@@ -29,8 +29,8 @@ android {
         targetSdk = 35
         // Version is overridable from the release tag via -PversionName / -PversionCode
         // (see .github/workflows/release.yml), so a tag alone drives a release build.
-        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 5
-        versionName = (project.findProperty("versionName") as String?) ?: "0.5.0"
+        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 6
+        versionName = (project.findProperty("versionName") as String?) ?: "0.6.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 

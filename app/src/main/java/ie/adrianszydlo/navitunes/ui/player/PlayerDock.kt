@@ -70,7 +70,8 @@ fun BoxScope.PlayerDock(controller: PlayerController, onExpand: () -> Unit) {
                 .fillMaxWidth()
                 .padding(bottom = 8.dp),
             onExpand = onExpand,
-            onLongPress = { bubble = true }
+            onLongPress = { bubble = true },
+            onSwipeUp = { bubble = true }
         )
     } else {
         BubblePlayer(

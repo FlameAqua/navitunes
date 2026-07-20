@@ -30,8 +30,34 @@ data class SubsonicResponse(
     val lyrics: PlainLyrics? = null,
     val lyricsList: LyricsList? = null,
     val genres: GenresWrapper? = null,
-    val songsByGenre: SongsByGenre? = null
+    val songsByGenre: SongsByGenre? = null,
+    val internetRadioStations: InternetRadioStations? = null,
+    val similarSongs2: SimilarSongs2? = null,
+    val similarSongs: SimilarSongs? = null,
+    val topSongs: TopSongs? = null
 )
+
+@Serializable
+data class InternetRadioStations(
+    val internetRadioStation: List<InternetRadioStation> = emptyList()
+)
+
+@Serializable
+data class InternetRadioStation(
+    val id: String = "",
+    val name: String = "",
+    val streamUrl: String = "",
+    val homepageUrl: String? = null
+)
+
+@Serializable
+data class SimilarSongs2(val song: List<Song> = emptyList())
+
+@Serializable
+data class SimilarSongs(val song: List<Song> = emptyList())
+
+@Serializable
+data class TopSongs(val song: List<Song> = emptyList())
 
 @Serializable
 data class GenresWrapper(val genre: List<GenreEntry> = emptyList())

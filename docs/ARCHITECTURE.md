@@ -6,7 +6,10 @@
 > don't have (Spotify-sourced downloads via spotdl, uploads, and beets metadata fixing).
 >
 > Package root: `ie.adrianszydlo.navitunes` · applicationId `ie.adrianszydlo.navitunes`
-> (debug: `.debug`, versionName suffix `-dev`). Current release: **v0.5.0** (versionCode 5).
+> (debug: `.debug`, versionName suffix `-dev`). Current release: **v0.6.0** (versionCode 6).
+>
+> **Server upkeep, troubleshooting and recovery commands live in
+> [MAINTENANCE.md](MAINTENANCE.md)** — read that before touching beets/spotdl/playlists.
 
 ---
 
@@ -72,24 +75,51 @@ ie.adrianszydlo.navitunes
 │  ├─ prefs/               AppPreferences (DataStore), RecentlyPlayedStore
 │  ├─ offline/             Room-backed offline downloads (DownloadDb/Repository/Worker,
 │  │                        OfflineResolver, StoragePermission) — streams library songs
-│  │                        to public Music/ folder for offline play
-│  ├─ remote/              server-side download stack (see §2.6):
-│  │                        DownloadService, DownloadManager, MetadataFixService
+│  │                        to public Music/ folder for offline play ("Device Downloads")
+│  ├─ remote/              server-side stack (see §2.6): DownloadService, DownloadManager,
+│  │                        MetadataFixService + MetadataFixManager ("Server Downloads")
+│  ├─ lyrics/              LrcLibService — free online lyrics fallback (lrclib.net)
 │  ├─ upload/              UploadService (push local files up to the server)
 │  ├─ discovery/           SpotifyClient (Spotify Web API discovery search)
 │  └─ update/             UpdateService + ApkInstaller (GitHub-release self-update)
 ├─ playback/
 │  ├─ PlayerService.kt      Media3 MediaSessionService + ExoPlayer (the real player)
-│  └─ PlayerController.kt   Compose-facing MediaController wrapper; StateFlows
+│  └─ PlayerController.kt   Compose-facing MediaController wrapper; StateFlows.
+│                           Also playStream() + isLiveStream for internet radio.
 └─ ui/
    ├─ theme/               NavColors token system, Theme, Type (Geist), Color, ArtColor
    ├─ common/              Cards, Motion, Skeleton, Notifier, SectionCard, TopBar,
-   │                        ArtImage, States, AlphabetScrollbar, SongActionsFactory
-   ├─ nav/                 RootNav (bottom nav + NavHost + PlayerDock + dialogs + locals)
+   │                        ArtImage, States, AlphabetScrollbar, SongActionsFactory,
+   │                        SheetDragHandle (finger-following sheet dismiss), TextPromptDialog
+   ├─ nav/                 RootNav (bottom nav + NavHost + PlayerDock + dialogs + locals),
+   │                        ManagePlaylistSheet (rename/description/public/delete)
+   ├─ radio/               RadioScreen — internet stations + song radio (§2.8)
    ├─ home/ library/ search/ detail/ settings/ downloads/ profile/ login/ update/
    ├─ player/             MiniPlayer, FullPlayerSheet, PlayerDock (bubble), LyricsPanel
    └─ widget/             Glance home-screen widget
 ```
+
+### 2.3.1 What V0.6 added
+
+- **Radio tab** (`ui/radio/`) — bottom nav is now Home · Library · **Search (centred, accent-filled)** ·
+  Radio · Settings. See §2.9.
+- **Playlist management** — long-press a playlist (Library row or Home card) → rename, edit
+  description, public/private, delete. Navidrome has **no API for a custom playlist cover**, so
+  that isn't offered.
+- **In-screen search** on album / artist / playlist detail (client-side filter of the loaded list).
+- **Genre categories** (`ui/library/GenreCategories.kt`) — keyword-maps fine-grained tags into broad
+  browsable categories, A–Z sidebar for the raw list, and treats spotdl's generic `Music` tag as
+  *Uncategorized*. Category cards deliberately show **genre count, not a track total** — a song with
+  several genres is counted once per genre server-side, so a summed total would overstate.
+- **Lyrics** — falls back to **lrclib.net** (free, keyless, synced LRC preferred) when the server
+  has none; the expanded view has faded top/bottom edges.
+- **Server install** — album/artist detail has a cloud button that resolves the entity on Spotify
+  *first*, then prompts with whether it matched a **single** or a full **album** (and warns if you
+  already own the track) before queuing it on the server.
+- **Reorderable queue**, drag-to-reorder with an explicit remove button; tapping a track plays it
+  without closing the queue.
+- **Live fix progress** — Settings → Maintenance shows the server job's stage/step, survives leaving
+  the screen (server owns the state) and disables the button while running (§2.10).
 
 ### 2.4 Theming (the one non-obvious pattern)
 
@@ -150,7 +180,42 @@ downloads are slow. Three pieces:
 - **Offline downloads** (`data/offline/`, Room + WorkManager): copy *existing library songs*
   to the phone's public `Music/` folder for offline playback. Purely client-side.
 - **Server downloads** (`data/remote/`, above): ask the *server* to fetch *new* music from
-  Spotify (via spotdl) into the library. Cross-network, single-flight, slow.
+  Spotify (via spotdl) into the library. Cross-network, queued server-side, slow.
+
+The UI names them explicitly — **"Device Downloads"** vs **"Server Downloads"** — because
+conflating them was a real source of confusion.
+
+### 2.8 Sheets & gestures
+
+Bottom sheets use `containerColor = Color.Transparent` with the **content carrying its own
+background**, plus `sheetGesturesEnabled = false` and a `SheetDragHandle`. Two reasons: dragging
+the body used to dismiss the sheet by accident while scrolling, and an opaque sheet container
+meant only the content slid while a dark rectangle stayed behind. The handle drives a
+finger-following offset that settles back up or animates out past a threshold.
+
+The mini-player can be turned into the floating bubble by **long-press or swipe-up**.
+
+### 2.9 Radio (`ui/radio/`)
+
+Two things in one tab:
+- **Stations** — Navidrome's internet radio stations (`getInternetRadioStations`), with
+  add/edit/delete (`create|update|deleteInternetRadioStation`). Subsonic exposes **no artwork**
+  for stations, so they render a default icon tile.
+- **Song radio** — seed from a recent/favourite track → `getSimilarSongs2`, falling back to
+  `getTopSongs` for the artist, then `getRandomSongs`.
+
+Stations play through `PlayerController.playStream()` (a raw URL, not a library song). While
+`isLiveStream` is true the full player hides seek/±10s/speed/shuffle/repeat/sleep/lyrics/queue and
+shows a LIVE badge — and **pause→play re-opens the stream** so you resume at the live edge rather
+than replaying buffered audio.
+
+### 2.10 Metadata-fix progress
+
+`MetadataFixManager` (process-scoped, in `AppContainer`) polls `/fix/status` while a job runs and
+exposes a `StateFlow<FixStatus>`. Because the **server owns the state**, progress survives leaving
+Settings, backgrounding, and app restarts — the screen just re-reads it on entry. The button is
+disabled while `running`, and the library signal is ticked when the job completes. Stage labels
+come from the script's `[n/N] stage…` echoes, so adding a pipeline step needs no app change.
 
 ---
 
@@ -173,15 +238,16 @@ downloads are slow. Three pieces:
 All routes take the Subsonic auth params as query string; the server validates them against
 Navidrome before doing work.
 
-| Method | Route        | Purpose |
-|--------|--------------|---------|
-| GET    | `/health`    | Liveness + `{ status, downloading }`. `downloading` = a spotdl job is active. |
-| POST   | `/upload`    | Multipart file → `/music/Uploads` → triggers a Navidrome scan. |
-| POST   | `/remove`    | Delete a file (fuzzy match; ambiguous matches rejected). |
-| POST   | `/download`  | Body `{ message: "track\|album\|artist\|playlist <spotifyId>" }`. **Returns 202 instantly**, runs spotdl in the background (single-flight via `sendRunning` + a stale-lock watchdog; playlists get `--m3u`). 409 if already busy. |
-| POST   | `/cancel`    | SIGKILL the current spotdl process. |
-| POST   | `/tracks`    | `spotdl save` → track list JSON (bypasses the Spotify 403 on editorial playlists). Slow/flaky on big playlists; currently **unused** by the app after the per-track sheet was reverted. |
-| POST   | `/fix`       | Runs `/opt/beets/fix-metadata.sh` (beets re-tag + genres + Navidrome rescan). |
+| Method | Route          | Purpose |
+|--------|----------------|---------|
+| GET    | `/health`      | Liveness + `{ status, downloading, active, queued }`. `downloading` = a job is active **or queued**. |
+| POST   | `/upload`      | Multipart file → `/music/Uploads` → triggers a Navidrome scan. |
+| POST   | `/remove`      | Delete a file (fuzzy match; ambiguous matches rejected). |
+| POST   | `/download`    | Body `{ message: "track\|album\|artist\|playlist <spotifyId>" }`. **Returns 202 instantly** and appends to a **FIFO queue** (§4). Concurrent callers are all accepted and drained one at a time; de-duplicated by entity. |
+| POST   | `/cancel`      | SIGKILL the job currently downloading; the next queued job starts automatically. |
+| POST   | `/tracks`      | `spotdl save` → track list JSON. Slow/flaky on big playlists; currently **unused** by the app. |
+| POST   | `/fix`         | Starts `/opt/beets/fix-metadata.sh` via `spawn`, streaming progress. 202 + status, or 409 + live status if already running. |
+| GET    | `/fix/status`  | `{ running, step, steps, stage, ok, message, elapsedMs }` — polled by the app for live progress. |
 
 ### 3.3 Spotify Web API  (`data/discovery/SpotifyClient.kt`)
 
@@ -201,15 +267,31 @@ Everything below runs on a single Proxmox LXC; the app only talks HTTP to it.
   async 202 instead of blocking until spotdl finished.
 - **Navidrome** — `:4533`. Owns the library DB, streaming, scrobble, auth. Scans `/music`.
 - **Upload server** — Node/Express `/opt/upload-server/server.js`, `127.0.0.1:3001`
-  (typically under pm2). Implements §3.2. Single-flight download lock; when it sends the
-  202 it must **not** touch `res` again in the spotdl callback (guard with
-  `if (!res.headersSent)`), or it throws `ERR_HTTP_HEADERS_SENT`.
-- **spotdl** — does the actual Spotify→audio fetching (uses an anonymous client, so it reads
-  editorial playlists the Web API blocks). **Gotchas:** OOM-killed / hangs on large
-  playlists; slow enough to blow proxy timeouts (hence async). Writes into `/music/Uploads`.
-- **beets** (`/opt/beets`, via pipx) + **`fix-metadata.sh`** — metadata pipeline invoked by
-  `/fix`: `beet import` → `mbsync` → `lastgenre` → `write` → Navidrome rescan. Config in
-  `/opt/beets/config.yaml`; MusicBrainz + lastgenre (Last.fm) plugins.
+  (typically under pm2). Implements §3.2. Downloads go through a **FIFO queue**: requests are
+  always accepted (202) and drained **one at a time**, because parallel spotdl runs into the same
+  folder race and can OOM the box. A watchdog SIGKILLs a job stuck past 15 min. `/fix` is spawned
+  (not `execFile`) so its `[n/N] stage…` stdout can be parsed into live progress.
+- **spotdl** — does the actual Spotify→audio fetching (anonymous client, so it reads editorial
+  playlists the Web API blocks). Invoked with an **output template** so downloads land in real
+  album folders:
+  `--output '{album-artist}/{album}/{track-number} - {title}.{output-ext}'`
+  This matters: beets matches a *folder* to a release, so a flat dump of unrelated singles gets
+  force-matched to one bogus album (this is how a Chappell Roan track ended up filed under
+  *Various Artists / "Lay All Your Love On Me"* with track number 01). Playlists additionally get
+  `--m3u`. **Gotchas:** OOM-killed / hangs on large playlists; slow enough to blow proxy timeouts.
+- **beets** (`/opt/beets`, via pipx) + **`fix-metadata.sh [--deep]`** — the metadata pipeline
+  invoked by `/fix` and by cron (nightly quick, weekly `--deep`):
+  `import` → *(deep: `mbsync` → `lastgenre`)* → `write` → `duplicates` (log only) →
+  **repoint playlists** → Navidrome `startScan?fullScan=true`.
+  Config in `/opt/beets/config.yaml`; `import.move: yes`, `quiet_fallback: asis`.
+
+- **`fix-playlist-paths.sh`** — the piece that keeps playlists alive. Playlists are m3u files in
+  `/music/Uploads` whose paths are **relative to that folder**; beets then *moves* the audio out of
+  `Uploads`, killing those paths, and the next Navidrome scan silently drops every entry it can't
+  resolve. This script rewrites each entry to the track's current absolute path (beets DB lookup,
+  then filesystem fallback), is idempotent, and preserves a one-time `<playlist>.m3u8.orig`.
+  It runs as a pipeline step *after* the move and *before* the rescan — that ordering is the
+  whole point. See MAINTENANCE.md §5.1.
   **Hard-won lessons (see genre saga):**
   - beets only acts on files that are **in `library.db`**. If imports have been skipping
     (quiet mode drops uncertain matches; the old `-i` incremental flag skipped whole dirs),

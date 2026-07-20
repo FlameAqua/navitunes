@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -90,22 +91,83 @@ fun SongRowSkeleton(showArt: Boolean = true) {
     }
 }
 
-/** Home first-load skeleton: a section header + a few song rows + a card strip. */
+/**
+ * Home first-load skeleton. Mirrors the real Home layout so the placeholder reads as
+ * the page that's about to appear: a Recently-Played card (art strip), a Playlists
+ * card (taller art strip), then a Recently-Added song card. The greeting hero is
+ * rendered separately by [HomeScreen] above this, so it's not repeated here.
+ */
 @Composable
 fun HomeSkeleton() {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-        SkeletonBlock(Modifier.fillMaxWidth(0.4f).height(24.dp), corner = 6.dp)
-        Spacer(Modifier.height(18.dp))
-        repeat(4) {
-            SongRowSkeleton()
-            Spacer(Modifier.height(6.dp))
+    Column(Modifier.fillMaxWidth()) {
+        // Recently Played — header + a strip of square art tiles.
+        SkeletonCard {
+            SkeletonSectionHead()
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.padding(start = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                repeat(4) {
+                    Column {
+                        SkeletonBlock(Modifier.size(140.dp), corner = 14.dp)
+                        Spacer(Modifier.height(10.dp))
+                        SkeletonBlock(Modifier.width(96.dp).height(13.dp), corner = 5.dp)
+                        Spacer(Modifier.height(6.dp))
+                        SkeletonBlock(Modifier.width(60.dp).height(11.dp), corner = 5.dp)
+                    }
+                }
+            }
         }
         Spacer(Modifier.height(24.dp))
-        SkeletonBlock(Modifier.fillMaxWidth(0.35f).height(20.dp), corner = 6.dp)
-        Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            repeat(3) { SkeletonBlock(Modifier.size(150.dp), corner = 14.dp) }
+
+        // My Playlists — header + a strip of taller playlist cards.
+        SkeletonCard {
+            SkeletonSectionHead()
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.padding(start = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                repeat(3) {
+                    Column {
+                        SkeletonBlock(Modifier.size(width = 152.dp, height = 152.dp), corner = 14.dp)
+                        Spacer(Modifier.height(10.dp))
+                        SkeletonBlock(Modifier.width(104.dp).height(13.dp), corner = 5.dp)
+                        Spacer(Modifier.height(6.dp))
+                        SkeletonBlock(Modifier.width(56.dp).height(11.dp), corner = 5.dp)
+                    }
+                }
+            }
         }
+        Spacer(Modifier.height(24.dp))
+
+        // Recently Added — header + song rows.
+        SkeletonCard {
+            SkeletonSectionHead()
+            Spacer(Modifier.height(6.dp))
+            Column(Modifier.padding(horizontal = 8.dp)) {
+                repeat(4) { SongRowSkeleton() }
+            }
+        }
+    }
+}
+
+/** A section card wrapper mirroring [SectionCard]'s padding, for skeletons. */
+@Composable
+private fun SkeletonCard(content: @Composable ColumnScope.() -> Unit) {
+    SectionCard(Modifier.padding(horizontal = 20.dp)) {
+        Column(Modifier.padding(vertical = 14.dp), content = content)
+    }
+}
+
+/** A skeleton stand-in for a [SectionHead] (title + subtitle lines). */
+@Composable
+private fun ColumnScope.SkeletonSectionHead() {
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        SkeletonBlock(Modifier.width(150.dp).height(20.dp), corner = 6.dp)
+        Spacer(Modifier.height(8.dp))
+        SkeletonBlock(Modifier.width(96.dp).height(12.dp), corner = 5.dp)
     }
 }
 

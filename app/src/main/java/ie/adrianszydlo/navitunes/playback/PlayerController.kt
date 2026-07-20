@@ -62,6 +62,13 @@ class PlayerController(private val appContext: Context) {
     private val _starred = MutableStateFlow(false)
     val starred: StateFlow<Boolean> = _starred.asStateFlow()
 
+    /** True while a live internet-radio stream is loaded (vs. a normal library queue). */
+    private val _isLiveStream = MutableStateFlow(false)
+    val isLiveStream: StateFlow<Boolean> = _isLiveStream.asStateFlow()
+
+    private data class StreamInfo(val id: String, val name: String, val url: String, val art: String?)
+    private var currentStream: StreamInfo? = null
+
     private val _speed = MutableStateFlow(1f)
     val speed: StateFlow<Float> = _speed.asStateFlow()
 
@@ -161,8 +168,37 @@ class PlayerController(private val appContext: Context) {
         val c = controller ?: return
         val items = songs.map { it.toMediaItem() }
         val safeIndex = startIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0))
+        _isLiveStream.value = false
+        currentStream = null
         _queue.value = songs
         c.setMediaItems(items, safeIndex, 0L)
+        c.prepare()
+        c.play()
+    }
+
+    /**
+     * Plays a raw stream URL (an internet radio station) that isn't a library song.
+     * Models the station as a single-item queue so the mini/full player still show
+     * a title and artwork. Live streams have no duration, so seeking is a no-op.
+     */
+    fun playStream(id: String, name: String, streamUrl: String, artworkUrl: String? = null) {
+        val c = controller ?: return
+        _isLiveStream.value = true
+        currentStream = StreamInfo(id, name, streamUrl, artworkUrl)
+        val station = Song(id = "radio:$id", title = name, artist = "Radio")
+        _queue.value = listOf(station)
+        val metadata = MediaMetadata.Builder()
+            .setTitle(name)
+            .setArtist("Radio")
+            .apply { artworkUrl?.let { setArtworkUri(it.toUri()) } }
+            .setExtras(Bundle().apply { putString("songId", station.id) })
+            .build()
+        val item = MediaItem.Builder()
+            .setMediaId(station.id)
+            .setUri(streamUrl.toUri())
+            .setMediaMetadata(metadata)
+            .build()
+        c.setMediaItems(listOf(item), 0, 0L)
         c.prepare()
         c.play()
     }
@@ -211,6 +247,19 @@ class PlayerController(private val appContext: Context) {
         _queue.value = _queue.value + songs
     }
 
+    /** Reorder the queue: move the entry at [from] to [to]. */
+    fun moveQueueItem(from: Int, to: Int) {
+        val c = controller ?: return
+        if (from == to) return
+        if (from !in 0 until c.mediaItemCount || to !in 0 until c.mediaItemCount) return
+        c.moveMediaItem(from, to)
+        _queue.value = _queue.value.toMutableList().also {
+            val moved = it.removeAt(from)
+            it.add(to, moved)
+        }
+        _currentIndex.value = c.currentMediaItemIndex
+    }
+
     /** Remove the queue entry at [index]. */
     fun removeFromQueueAt(index: Int) {
         val c = controller ?: return
@@ -251,7 +300,18 @@ class PlayerController(private val appContext: Context) {
 
     fun togglePlay() {
         val c = controller ?: return
-        if (c.isPlaying) c.pause() else c.play()
+        if (c.isPlaying) {
+            c.pause()
+            return
+        }
+        // Resuming a paused live stream from its buffered position would replay stale
+        // audio; re-open the stream so playback continues from the live edge instead.
+        val stream = currentStream
+        if (stream != null) {
+            playStream(stream.id, stream.name, stream.url, stream.art)
+        } else {
+            c.play()
+        }
     }
 
     /** Hard-stop: clears the queue and dismisses the mini-player. */
@@ -259,6 +319,8 @@ class PlayerController(private val appContext: Context) {
         val c = controller ?: return
         c.stop()
         c.clearMediaItems()
+        _isLiveStream.value = false
+        currentStream = null
         _queue.value = emptyList()
         _currentItem.value = null
         _currentIndex.value = -1

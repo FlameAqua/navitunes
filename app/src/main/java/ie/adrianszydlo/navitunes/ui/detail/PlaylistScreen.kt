@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,8 +40,8 @@ import ie.adrianszydlo.navitunes.ui.common.SongRow
 import ie.adrianszydlo.navitunes.ui.common.formatDuration
 import ie.adrianszydlo.navitunes.ui.common.rememberSongActions
 import ie.adrianszydlo.navitunes.ui.nav.LocalPlayerController
+import ie.adrianszydlo.navitunes.ui.nav.ManagePlaylistRequest
 import ie.adrianszydlo.navitunes.ui.theme.Accent
-import ie.adrianszydlo.navitunes.ui.theme.Danger
 import ie.adrianszydlo.navitunes.ui.theme.Text3
 import kotlinx.coroutines.launch
 
@@ -61,8 +61,9 @@ fun PlaylistScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var playlist by remember { mutableStateOf<Playlist?>(null) }
     var reloadTick by remember { mutableIntStateOf(0) }
+    var query by remember { mutableStateOf("") }
 
-    var showDeletePlaylist by remember { mutableStateOf(false) }
+    val managePlaylist = ie.adrianszydlo.navitunes.ui.nav.LocalManagePlaylistRequest.current
     var indexToRemove by remember { mutableStateOf<Int?>(null) }
     val signalTick by container.librarySignals.refresh.collectAsState()
 
@@ -103,8 +104,8 @@ fun PlaylistScreen(
                             coverArt = p.coverArt,
                             onBack = onBack,
                             trailing = {
-                                IconButton(onClick = { showDeletePlaylist = true }) {
-                                    Icon(Icons.Outlined.Delete, contentDescription = "Delete playlist", tint = Danger)
+                                IconButton(onClick = { managePlaylist(ManagePlaylistRequest(p, onDeleted = onGoHome)) }) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = "Manage playlist", tint = Text3)
                                 }
                             }
                         )
@@ -151,20 +152,46 @@ fun PlaylistScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                     }
+                    if (songs.size > 6) {
+                        item {
+                            DetailSearchField(
+                                query = query,
+                                onQueryChange = { query = it },
+                                placeholder = "Search this playlist…",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 4.dp)
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
+                    // Keep each row's true playlist index so removal stays correct even
+                    // while filtered; playback uses the visible order.
+                    val visible = songs.withIndex().filter { (_, s) ->
+                        query.isBlank() ||
+                            s.title.contains(query.trim(), ignoreCase = true) ||
+                            s.artist?.contains(query.trim(), ignoreCase = true) == true ||
+                            s.album?.contains(query.trim(), ignoreCase = true) == true
+                    }
                     if (songs.isEmpty()) {
                         item { EmptyState("No tracks", "") }
+                    } else if (visible.isEmpty()) {
+                        item { EmptyState("No matches", "No tracks match \"$query\".") }
                     } else {
-                        itemsIndexed(songs, key = { idx, s -> "${s.id}-$idx" }) { idx, song ->
+                        val visibleSongs = visible.map { it.value }
+                        itemsIndexed(visible, key = { _, iv -> "${iv.value.id}-${iv.index}" }) { pos, iv ->
+                            val song = iv.value
+                            val trueIndex = iv.index
                             val controller = LocalPlayerController.current
                             SongRow(
                                 song = song,
-                                onClick = { onPlay(songs, idx) },
+                                onClick = { onPlay(visibleSongs, pos) },
                                 actions = rememberSongActions(
                                     song = song,
                                     controller = controller,
                                     onOpenAlbum = null,
-                                    playNow = { onPlay(songs, idx) },
-                                    onRemoveFromPlaylist = { indexToRemove = idx }
+                                    playNow = { onPlay(visibleSongs, pos) },
+                                    onRemoveFromPlaylist = { indexToRemove = trueIndex }
                                 )
                             )
                         }
@@ -206,32 +233,6 @@ fun PlaylistScreen(
                 }
             },
             onDismiss = { indexToRemove = null }
-        )
-    }
-
-    if (showDeletePlaylist && playlist != null) {
-        ConfirmDialog(
-            title = "Delete \"${playlist!!.name}\"?",
-            message = "This permanently deletes the playlist from your library. The individual songs stay.",
-            confirmLabel = "Delete",
-            destructive = true,
-            onConfirm = {
-                scope.launch {
-                    runCatching { repo.deletePlaylist(id) }
-                        .onSuccess {
-                            container.librarySignals.notifyChanged()
-                            notifier.success("Playlist deleted")
-                            // The playlist no longer exists — sending the user back to
-                            // wherever they came from (e.g. Library) would show a stale
-                            // entry until that screen reloads. Jump to Home for clarity.
-                            onGoHome()
-                        }
-                        .onFailure {
-                            notifier.error("Couldn't delete: ${it.message}")
-                        }
-                }
-            },
-            onDismiss = { showDeletePlaylist = false }
         )
     }
 }

@@ -24,9 +24,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.LyricLine
@@ -48,22 +54,62 @@ sealed interface LyricsData {
  */
 @Composable
 fun rememberSongLyrics(song: Song?): LyricsData {
-    val repo = NavitunesApp.container().libraryRepository
+    val container = NavitunesApp.container()
+    val repo = container.libraryRepository
     var state by remember(song?.id) { mutableStateOf<LyricsData>(LyricsData.Loading) }
     LaunchedEffect(song?.id) {
         if (song == null) { state = LyricsData.None; return@LaunchedEffect }
         state = LyricsData.Loading
+        // 1) Server-side synced/plain lyrics (OpenSubsonic).
         val structured = repo.lyricsBySongId(song.id)
         val best = structured.firstOrNull { it.synced && it.line.isNotEmpty() }
             ?: structured.firstOrNull { it.line.isNotEmpty() }
-        state = when {
+        val serverResult = when {
             best != null && best.synced -> LyricsData.Synced(best.line)
             best != null -> LyricsData.Plain(best.line.joinToString("\n") { it.value })
-            else -> repo.plainLyrics(song.artist, song.title)?.let { LyricsData.Plain(it) } ?: LyricsData.None
+            else -> repo.plainLyrics(song.artist, song.title)?.let { LyricsData.Plain(it) }
+        }
+        if (serverResult != null) { state = serverResult; return@LaunchedEffect }
+
+        // 2) Fall back to lrclib.net (free online source, synced preferred) by name.
+        val lrc = container.lrcLibService.fetch(
+            title = song.title,
+            artist = song.artist,
+            album = song.album,
+            durationSec = song.duration.takeIf { it > 0 }
+        )
+        state = when {
+            !lrc.synced.isNullOrEmpty() -> LyricsData.Synced(lrc.synced)
+            !lrc.plain.isNullOrBlank() -> LyricsData.Plain(lrc.plain)
+            else -> LyricsData.None
         }
     }
     return state
 }
+
+/**
+ * Fades the top and bottom [fade] region of a scrolling area to transparent, so lyric
+ * lines dissolve at the edges instead of being cut off hard. Uses an offscreen layer +
+ * a DstIn alpha mask, so it works over any background (the art gradient included).
+ */
+fun Modifier.verticalFadingEdges(fade: Dp = 56.dp): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val f = (fade.toPx()).coerceAtMost(size.height / 2f)
+        if (f <= 0f) return@drawWithContent
+        val top = f / size.height
+        val bottom = 1f - top
+        drawRect(
+            brush = Brush.verticalGradient(
+                0f to Color.Transparent,
+                top to Color.Black,
+                bottom to Color.Black,
+                1f to Color.Transparent
+            ),
+            blendMode = BlendMode.DstIn
+        )
+    }
 
 /** The active synced line for [positionMs], or null if not synced / unavailable. */
 fun currentSyncedLine(data: LyricsData, positionMs: Long): String? {
@@ -92,6 +138,7 @@ fun LyricsPanel(data: LyricsData, positionMs: Long, color: Color, modifier: Modi
                 lineHeight = MaterialTheme.typography.titleMedium.fontSize.times(1.6f),
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalFadingEdges()
                     .verticalScroll(rememberScrollState())
                     .padding(vertical = 8.dp)
             )
@@ -111,7 +158,7 @@ private fun SyncedLyrics(lines: List<LyricLine>, positionMs: Long, color: Color)
     }
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().verticalFadingEdges(72.dp),
         contentPadding = PaddingValues(vertical = 90.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fully transparent splash icon: the Android 12+ system splash then shows just the
+     navy background, and our animated BrandSplash is the only place the logo appears
+     (so the logo isn't shown twice on cold start). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@android:color/transparent" />
+</shape>

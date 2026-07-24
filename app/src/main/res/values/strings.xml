@@ -65,6 +65,9 @@
 
     <!-- Player -->
     <string name="now_playing">Now Playing</string>
+    <string name="playing_from">From %1$s</string>
+    <string name="increase">Increase</string>
+    <string name="decrease">Decrease</string>
     <string name="queue">Queue</string>
     <string name="queue_empty">Queue is empty</string>
     <string name="queue_reorder_hint">Drag the handle to reorder</string>

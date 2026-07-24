@@ -4,8 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -21,7 +19,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
@@ -43,17 +40,14 @@ fun ArtImage(
     requestSize: Int = 300,
     /** Used when [coverId] is missing or fails to load (e.g. an artist → an album cover). */
     fallbackCoverId: String? = null,
-    /** If set, the placeholder shows this icon instead of a letter (e.g. a radio glyph for streams). */
+    /** If set, the placeholder shows this icon instead of the logo (e.g. a radio glyph for streams). */
     fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     val context = LocalContext.current
     val api = NavitunesApp.container().apiClient
-    val letter = remember(fallback) {
-        fallback.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
-    }
 
     // Retry a transient load failure a couple of times, then switch to the fallback
-    // cover (if any) before giving up to the letter placeholder. State resets per cover.
+    // cover (if any) before giving up to the logo placeholder. State resets per cover.
     var attempt by remember(coverId, fallbackCoverId) { mutableIntStateOf(0) }
     var usingFallback by remember(coverId, fallbackCoverId) { mutableStateOf(false) }
 
@@ -97,18 +91,18 @@ fun ArtImage(
                             }
                         }
                     }
-                    Fallback(letter, fallbackIcon)
+                    Fallback(fallbackIcon)
                 },
-                loading = { Fallback(letter, fallbackIcon) }
+                loading = { Fallback(fallbackIcon) }
             )
         } else {
-            Fallback(letter, fallbackIcon)
+            Fallback(fallbackIcon)
         }
     }
 }
 
 @Composable
-private fun Fallback(letter: String, icon: androidx.compose.ui.graphics.vector.ImageVector?) {
+private fun Fallback(icon: androidx.compose.ui.graphics.vector.ImageVector?) {
     if (icon != null) {
         androidx.compose.material3.Icon(
             imageVector = icon,
@@ -117,11 +111,12 @@ private fun Fallback(letter: String, icon: androidx.compose.ui.graphics.vector.I
             modifier = Modifier.fillMaxSize(0.42f)
         )
     } else {
-        Text(
-            text = letter,
-            color = Text4,
-            fontSize = 38.sp,
-            style = MaterialTheme.typography.displayLarge
+        // Default placeholder is the Navitunes logo (fills the square tile) rather than a letter.
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(ie.adrianszydlo.navitunes.R.drawable.nav_logo),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
         )
     }
 }

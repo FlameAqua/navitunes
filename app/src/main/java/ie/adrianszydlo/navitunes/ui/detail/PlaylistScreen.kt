@@ -1,5 +1,10 @@
 package ie.adrianszydlo.navitunes.ui.detail
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -28,6 +33,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
 import ie.adrianszydlo.navitunes.data.api.Playlist
@@ -39,6 +46,7 @@ import ie.adrianszydlo.navitunes.ui.common.Loading
 import ie.adrianszydlo.navitunes.ui.common.SongRow
 import ie.adrianszydlo.navitunes.ui.common.formatDuration
 import ie.adrianszydlo.navitunes.ui.common.rememberSongActions
+import ie.adrianszydlo.navitunes.playback.PlayerController
 import ie.adrianszydlo.navitunes.ui.nav.LocalPlayerController
 import ie.adrianszydlo.navitunes.ui.nav.ManagePlaylistRequest
 import ie.adrianszydlo.navitunes.ui.theme.Accent
@@ -49,12 +57,12 @@ import kotlinx.coroutines.launch
 fun PlaylistScreen(
     id: String,
     onBack: () -> Unit,
-    onPlay: (List<Song>, Int) -> Unit,
     onGoHome: () -> Unit
 ) {
     val container = NavitunesApp.container()
     val repo = container.libraryRepository
     val scope = rememberCoroutineScope()
+    val controller = LocalPlayerController.current
     val notifier = ie.adrianszydlo.navitunes.ui.common.LocalNotifier.current
     val wifiOnly by container.preferences.wifiOnly.collectAsState(initial = false)
     var loading by remember { mutableStateOf(true) }
@@ -62,6 +70,8 @@ fun PlaylistScreen(
     var playlist by remember { mutableStateOf<Playlist?>(null) }
     var reloadTick by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
+    var searchOpen by remember { mutableStateOf(false) }
+    val searchFocus = remember { FocusRequester() }
 
     val managePlaylist = ie.adrianszydlo.navitunes.ui.nav.LocalManagePlaylistRequest.current
     var indexToRemove by remember { mutableStateOf<Int?>(null) }
@@ -90,6 +100,9 @@ fun PlaylistScreen(
             playlist != null -> {
                 val p = playlist!!
                 val songs = p.entry
+                // Playing from here tags the queue with this playlist so the player can link back.
+                val playlistSource = PlayerController.PlaybackSource.Playlist(id, p.name)
+                fun playFrom(list: List<Song>, index: Int) = controller.play(list, index, playlistSource)
                 // The real, playable tracks are `entry`; `songCount` can be inflated
                 // by "orphans" (songs deleted from the library but still counted by
                 // the server). Show and act on the real list.
@@ -135,8 +148,12 @@ fun PlaylistScreen(
                     }
                     item {
                         DetailActions(
-                            onPlay = { onPlay(songs, 0) },
-                            onShuffle = { onPlay(songs.shuffled(), 0) },
+                            onToggleSearch = if (songs.size > 6) {
+                                { searchOpen = !searchOpen; if (!searchOpen) query = "" }
+                            } else null,
+                            searchActive = searchOpen,
+                            onPlay = { playFrom(songs, 0) },
+                            onShuffle = { playFrom(songs.shuffled(), 0) },
                             onDownload = if (songs.isNotEmpty()) {
                                 {
                                     if (!container.downloadRepository.hasStorageAccess()) {
@@ -154,14 +171,24 @@ fun PlaylistScreen(
                     }
                     if (songs.size > 6) {
                         item {
-                            DetailSearchField(
-                                query = query,
-                                onQueryChange = { query = it },
-                                placeholder = "Search this playlist…",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 4.dp)
-                            )
+                            LaunchedEffect(searchOpen) {
+                                if (searchOpen) runCatching { searchFocus.requestFocus() }
+                            }
+                            AnimatedVisibility(
+                                visible = searchOpen,
+                                enter = expandVertically() + fadeIn(),
+                                exit = shrinkVertically() + fadeOut()
+                            ) {
+                                DetailSearchField(
+                                    query = query,
+                                    onQueryChange = { query = it },
+                                    placeholder = "Search this playlist…",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 4.dp)
+                                        .focusRequester(searchFocus)
+                                )
+                            }
                             Spacer(Modifier.height(4.dp))
                         }
                     }
@@ -182,15 +209,14 @@ fun PlaylistScreen(
                         itemsIndexed(visible, key = { _, iv -> "${iv.value.id}-${iv.index}" }) { pos, iv ->
                             val song = iv.value
                             val trueIndex = iv.index
-                            val controller = LocalPlayerController.current
                             SongRow(
                                 song = song,
-                                onClick = { onPlay(visibleSongs, pos) },
+                                onClick = { playFrom(visibleSongs, pos) },
                                 actions = rememberSongActions(
                                     song = song,
                                     controller = controller,
                                     onOpenAlbum = null,
-                                    playNow = { onPlay(visibleSongs, pos) },
+                                    playNow = { playFrom(visibleSongs, pos) },
                                     onRemoveFromPlaylist = { indexToRemove = trueIndex }
                                 )
                             )

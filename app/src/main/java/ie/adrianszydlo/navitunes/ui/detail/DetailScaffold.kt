@@ -1,6 +1,7 @@
 package ie.adrianszydlo.navitunes.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,12 +18,10 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -142,36 +141,94 @@ fun DetailHeader(
     }
 }
 
+/**
+ * The centred action row for album/playlist detail: Play (emphasised) · Shuffle · Download ·
+ * Search, all as clean icon buttons. The search glyph toggles the in-list search bar
+ * ([onToggleSearch]); it's only shown when that callback is provided.
+ */
 @Composable
 fun DetailActions(
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
-    onDownload: (() -> Unit)? = null
+    onDownload: (() -> Unit)? = null,
+    onToggleSearch: (() -> Unit)? = null,
+    searchActive: Boolean = false
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 4.dp),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(
+            18.dp, Alignment.CenterHorizontally
+        ),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Button(
+        DetailActionButton(
+            icon = Icons.Filled.PlayArrow,
+            contentDescription = "Play",
             onClick = onPlay,
-            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = AccentOn),
-            modifier = Modifier.weight(1f)
-        ) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = null)
-            Spacer(Modifier.size(6.dp))
-            Text("Play", fontWeight = FontWeight.SemiBold)
-        }
-        OutlinedButton(onClick = onShuffle, modifier = Modifier.weight(1f)) {
-            Icon(Icons.Filled.Shuffle, contentDescription = null)
-            Spacer(Modifier.size(6.dp))
-            Text("Shuffle")
-        }
+            filled = true
+        )
+        DetailActionButton(
+            icon = Icons.Filled.Shuffle,
+            contentDescription = "Shuffle",
+            onClick = onShuffle
+        )
         if (onDownload != null) {
-            OutlinedButton(onClick = onDownload) {
-                Icon(Icons.Outlined.Download, contentDescription = "Download")
-            }
+            DetailActionButton(
+                icon = Icons.Outlined.Download,
+                contentDescription = "Download",
+                onClick = onDownload
+            )
         }
+        if (onToggleSearch != null) {
+            DetailActionButton(
+                icon = Icons.Outlined.Search,
+                contentDescription = "Search",
+                onClick = onToggleSearch,
+                active = searchActive
+            )
+        }
+    }
+}
+
+/**
+ * One circular action button. [filled] = the emphasised accent Play button; [active] = a
+ * toggled state (accent tint), used by the search button when the search bar is open.
+ */
+@Composable
+private fun DetailActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    filled: Boolean = false,
+    active: Boolean = false
+) {
+    val size = if (filled) 56.dp else 50.dp
+    val bg = when {
+        filled -> Accent
+        active -> Accent.copy(alpha = 0.18f)
+        else -> NavTheme.colors.surfaceElev
+    }
+    val tint = when {
+        filled -> AccentOn
+        active -> Accent
+        else -> NavTheme.colors.textHi
+    }
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .then(
+                if (!filled) Modifier.border(
+                    1.dp,
+                    if (active) Accent else NavTheme.colors.border,
+                    RoundedCornerShape(50)
+                ) else Modifier
+            )
+    ) {
+        Icon(icon, contentDescription = contentDescription, tint = tint)
     }
 }

@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,6 +69,7 @@ import ie.adrianszydlo.navitunes.ui.common.LocalNotifier
 import ie.adrianszydlo.navitunes.ui.common.rememberSongActions
 import ie.adrianszydlo.navitunes.ui.nav.LocalPlayerController
 import ie.adrianszydlo.navitunes.ui.theme.Accent
+import ie.adrianszydlo.navitunes.ui.theme.AccentOn
 import ie.adrianszydlo.navitunes.ui.theme.BorderCol
 import ie.adrianszydlo.navitunes.ui.theme.NavTheme
 import ie.adrianszydlo.navitunes.ui.theme.Surface
@@ -85,7 +87,8 @@ private sealed interface HomeState {
         val recentSongs: List<Song>,
         val playlists: List<Playlist>,
         val newestSongs: List<Song>,
-        val shuffle: List<Song>
+        val shuffle: List<Song>,
+        val genres: List<String>
     ) : HomeState
 }
 
@@ -129,6 +132,11 @@ fun HomeScreen(
             // "recently added songs" endpoint).
             val newestAlbumsDeferred = scope.async { runCatching { repo.albumList("newest", 12) }.getOrDefault(emptyList()) }
             val playlistsDeferred = scope.async { runCatching { repo.allPlaylists() }.getOrDefault(emptyList()) }
+            // Genres for the Shuffle selector (reuse the existing list on a silent refresh).
+            val genresDeferred = scope.async {
+                existing?.genres
+                    ?: runCatching { repo.genres() }.getOrDefault(emptyList()).map { it.value }.take(20)
+            }
             // Reuse the existing shuffle on a silent refresh so it doesn't visibly
             // reshuffle every poll; only fetch new random picks on the first load.
             val random = existing?.shuffle
@@ -147,7 +155,8 @@ fun HomeScreen(
                 recentSongs = recentsSnapshot,
                 playlists = playlists,
                 newestSongs = newestSongs,
-                shuffle = random
+                shuffle = random,
+                genres = genresDeferred.await()
             )
         } catch (t: Throwable) {
             // Keep showing existing content if a background refresh fails.
@@ -174,6 +183,18 @@ fun HomeScreen(
                 ErrorState(stringResource(R.string.home_load_failed), s.message, onRetry = { reloadTick++ })
             }
             is HomeState.Ready -> {
+                // Shuffle genre filter — null = "All" (the random picks from load()). Picking a
+                // genre fetches songs tagged with it; the override is kept out of HomeState so
+                // switching genres doesn't reload the whole screen.
+                var shuffleGenre by remember { mutableStateOf<String?>(null) }
+                var shuffleOverride by remember { mutableStateOf<List<Song>?>(null) }
+                LaunchedEffect(shuffleGenre) {
+                    val g = shuffleGenre
+                    shuffleOverride = if (g == null) null
+                    else runCatching { repo.songsByGenre(g, 200) }.getOrDefault(emptyList()).shuffled()
+                }
+                val shuffleSongs = shuffleOverride ?: s.shuffle
+
                 val empty = s.recentSongs.isEmpty() && s.playlists.isEmpty() &&
                     s.newestSongs.isEmpty() && s.shuffle.isEmpty()
                 if (empty) {
@@ -240,11 +261,14 @@ fun HomeScreen(
                                 CardSongSection(
                                     title = "Shuffle",
                                     subtitle = stringResource(R.string.home_random_picks),
-                                    songs = s.shuffle.take(10),
-                                    onPlay = { idx -> onPlay(s.shuffle, idx) },
+                                    songs = shuffleSongs.take(10),
+                                    onPlay = { idx -> onPlay(shuffleSongs, idx) },
                                     onAlbum = onAlbum,
                                     controller = controller,
-                                    onShuffleAll = { onPlay(s.shuffle.shuffled(), 0) }
+                                    onShuffleAll = { onPlay(shuffleSongs.shuffled(), 0) },
+                                    genres = s.genres,
+                                    selectedGenre = shuffleGenre,
+                                    onGenre = { shuffleGenre = it }
                                 )
                             }
                         }
@@ -378,11 +402,27 @@ private fun CardSongSection(
     onPlay: (Int) -> Unit,
     onAlbum: (String) -> Unit,
     controller: ie.adrianszydlo.navitunes.playback.PlayerController,
-    onShuffleAll: (() -> Unit)? = null
+    onShuffleAll: (() -> Unit)? = null,
+    genres: List<String>? = null,
+    selectedGenre: String? = null,
+    onGenre: ((String?) -> Unit)? = null
 ) {
     SectionCard(Modifier.padding(horizontal = 20.dp)) {
         Column(Modifier.padding(top = 14.dp, bottom = 6.dp)) {
             Box(Modifier.padding(horizontal = 16.dp)) { SectionHead(title, subtitle) }
+            // Optional genre selector (Shuffle): "All" + the library's genres.
+            if (onGenre != null && !genres.isNullOrEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item { GenreChip("All", selectedGenre == null) { onGenre(null) } }
+                    items(genres, key = { it }) { g ->
+                        GenreChip(g, selectedGenre == g) { onGenre(g) }
+                    }
+                }
+            }
             Spacer(Modifier.height(4.dp))
             Column(Modifier.padding(horizontal = 8.dp)) {
                 songs.forEachIndexed { i, song ->
@@ -414,6 +454,22 @@ private fun CardSongSection(
         }
     }
     Spacer(Modifier.height(28.dp))
+}
+
+/** A pill chip for the Shuffle genre selector; accent-filled when selected. */
+@Composable
+private fun GenreChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        color = if (selected) AccentOn else Text2,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) Accent else NavTheme.colors.surfaceElev)
+            .clickableScaled(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp)
+    )
 }
 
 @Composable

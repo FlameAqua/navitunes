@@ -6,7 +6,7 @@
 > don't have (Spotify-sourced downloads via spotdl, uploads, and beets metadata fixing).
 >
 > Package root: `ie.adrianszydlo.navitunes` · applicationId `ie.adrianszydlo.navitunes`
-> (debug: `.debug`, versionName suffix `-dev`). Current release: **v0.7.0** (versionCode 7).
+> (debug: `.debug`, versionName suffix `-dev`). Current release: **v0.7.1** (versionCode 8).
 >
 > **Server upkeep, troubleshooting and recovery commands live in
 > [MAINTENANCE.md](MAINTENANCE.md)** — read that before touching beets/spotdl/playlists.
@@ -146,6 +146,57 @@ ie.adrianszydlo.navitunes
   `<plurals>`); groundwork for localisation (e.g. a future Polish `values-pl`). Some screens still
   hold inline literals.
 - **Search** opens focused with the keyboard raised.
+
+### 2.3.3 What V0.7.1 added
+
+Polish pass over V0.7.0 (presentation-only; no auth/data/playback-resilience logic touched):
+
+- **New brand identity** — the fairy-and-note logo (Navi from Zelda × Navidrome). Launcher icons
+  regenerated at every density from `app/logo.png` (the design source of truth) via ImageMagick;
+  adaptive foreground is full-bleed with a matching navy background (`#1E2E58`); the monochrome
+  layer was dropped (a full-colour art makes a poor themed-icon silhouette). `res/drawable-nodpi/
+  nav_logo.png` is the shared raster for the splash and default art.
+- **Animated brand splash** (`ui/common/BrandSplash.kt`) — a Compose overlay in `RootNav`
+  (behind a cold-start `rememberSaveable` flag) hands off from the system splash: the logo fades +
+  springs in over a pulsing glow halo, the **"Hey, Listen!"** slogan follows, then it dissolves.
+  The **system splash icon is a transparent drawable** (`splash_icon_none`) so the logo isn't shown
+  twice — the Android-12 splash is just the navy background, then BrandSplash animates the logo in.
+- **Default art is the logo** — `ArtImage`'s placeholder now renders `nav_logo` instead of the
+  first letter (the radio glyph path is unchanged).
+- **Mini-player dynamic lighting** — the docked mini-player gets a gentle art-derived accent
+  (`rememberArtAccent`) glowing from the album-art edge, a quiet echo of the full player's backdrop.
+- **Playback-settings redesign** — the stretched horizontal-slider dialog is replaced by a compact
+  panel of **vertical icon sliders** (volume / speed / sleep), `DialogProperties(usePlatformDefaultWidth
+  = false)` **plus a bounded `width(300.dp)`** (the skip-silence row's `fillMaxWidth` otherwise
+  re-expands the wrap-content dialog to full screen). Each slider has a `+`/`−` stepper (5% / 0.05× /
+  5 min). Speed uses a **piecewise scale so 1× is dead-centre** (`speedToFraction`/`fractionToSpeed`),
+  live-unsnapped while dragging and snapped to 0.05 on release. The sleep fill winds down live.
+  `VerticalIconSlider` holds the drag in **local state** (`pos`) that re-syncs to the incoming value
+  only when untouched — reading the value back through the StateFlow each frame (plus the speed
+  snap) is what made the volume/speed sliders feel jumpy.
+- **Album-art slide** — the full player's cover is an `AnimatedContent` that slides in the skip
+  direction (direction computed **synchronously** during composition, not in a LaunchedEffect, else
+  the transition reads a stale value and always slides forward); adjacent covers are preloaded into
+  Coil (same cache keys as `ArtImage`) so the incoming art is already decoded.
+- **Detail action row** (`DetailActions`) — Play / Shuffle / Download are now centred **icon
+  buttons**, plus a magnifying-glass that toggles the in-list search bar (`AnimatedVisibility`
+  expand + auto-focus) on album/playlist screens.
+- **Search result order** — Songs → Artists → Playlists → Albums (tracks first).
+- **Home Shuffle genre selector** — a chip row (`All` + the library's genres) filters the Shuffle
+  section; `All` is the random picks, a genre fetches `songsByGenre`. The override is held in the
+  Ready branch (not `HomeState`) so switching genres doesn't reload the screen.
+- **Song radio is pseudo-limitless** — `extendRadio` now broadens its source (similar → seed-artist
+  top → random) until it finds tracks *not already queued*, fixing the case where a looping
+  recommendation set returned only duplicates and the radio silently dried up. Capped at
+  `RADIO_MAX = 50` total so it ends rather than playing forever.
+- **"Playing from …" link** — starting playback from a playlist tags the queue with a
+  `PlayerController.PlaybackSource`; the full player shows a clickable link under *Now Playing* back
+  to that playlist (cleared on any other playback).
+- **Media Output ±10s** — One UI's media card ignores the standard `SEEK_BACK/FORWARD` player
+  commands, so ±10s are now **custom** session actions (`ACTION_SEEK_BACK/FORWARD`), which One UI
+  renders. Its card has only 5 slots (`[custom] prev · play · next [custom]`), so it shows
+  `⟲10 · prev · play · next · 10⟳`; the favourite stays in the button list (shown on richer surfaces
+  like Auto) but is dropped here — favourite remains fully available in-app and two-way synced.
 
 ### 2.4 Theming (the one non-obvious pattern)
 

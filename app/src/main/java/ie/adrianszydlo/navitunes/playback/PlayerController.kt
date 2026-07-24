@@ -26,6 +26,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
+/** Total tracks a Song Radio will grow to before it's allowed to end (pseudo-limitless, not infinite). */
+private const val RADIO_MAX = 50
+
 /**
  * Compose-friendly handle on the MediaSession. Lifecycle: created in the Activity,
  * `bind()` connects to the service; flows update state for the UI.
@@ -86,6 +89,11 @@ class PlayerController(private val appContext: Context) {
     /** Non-null while a Song Radio is playing; the queue auto-extends as it nears the end. */
     private var radioSeed: Song? = null
     private var extending = false
+
+    /** Where the current queue was started from (e.g. a playlist), so the player can show a
+     *  "playing from …" link back to it. Cleared on any fresh non-sourced playback. */
+    private val _source = MutableStateFlow<PlaybackSource?>(null)
+    val source: StateFlow<PlaybackSource?> = _source.asStateFlow()
 
     /** Listens for session-extras pushes from the service (favourite state) so the in-app heart
      *  updates the instant it changes in the notification / output switcher. */
@@ -199,9 +207,10 @@ class PlayerController(private val appContext: Context) {
         }
     }
 
-    fun play(songs: List<Song>, startIndex: Int) {
+    fun play(songs: List<Song>, startIndex: Int, source: PlaybackSource? = null) {
         radioSeed = null
         playInternal(songs, startIndex)
+        _source.value = source
     }
 
     /**
@@ -219,6 +228,7 @@ class PlayerController(private val appContext: Context) {
         val safeIndex = startIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0))
         _isLiveStream.value = false
         currentStream = null
+        _source.value = null
         _queue.value = songs
         c.setMediaItems(items, safeIndex, 0L)
         c.prepare()
@@ -233,6 +243,7 @@ class PlayerController(private val appContext: Context) {
     fun playStream(id: String, name: String, streamUrl: String, artworkUrl: String? = null) {
         val c = controller ?: return
         radioSeed = null
+        _source.value = null
         _isLiveStream.value = true
         currentStream = StreamInfo(id, name, streamUrl, artworkUrl)
         val station = Song(id = "radio:$id", title = name, artist = "Radio")
@@ -397,25 +408,37 @@ class PlayerController(private val appContext: Context) {
 
     /**
      * Extends the Song Radio queue with more songs similar to the [current] track (falling back to
-     * the seed). De-duplicates against what's already queued so the same track never repeats.
+     * the seed). Broadens the source — similar → seed-artist top songs → random — until it actually
+     * finds tracks *not already queued*, because a small/looping recommendation set can otherwise
+     * return only duplicates and the radio would silently dry up. Caps the total at [RADIO_MAX] so
+     * it eventually ends rather than playing forever.
      */
     private fun extendRadio(current: Song?) {
         if (extending) return
+        if (_queue.value.size >= RADIO_MAX) return  // reached the cap → let the radio wind down
         val seed = current ?: radioSeed ?: return
         extending = true
         scope.launch {
             try {
                 val repo = NavitunesApp.container().libraryRepository
-                val more = runCatching { repo.similarSongs(seed.id, 40) }.getOrDefault(emptyList())
-                    .ifEmpty {
-                        seed.artist?.takeIf { it.isNotBlank() }
-                            ?.let { runCatching { repo.topSongs(it, 40) }.getOrDefault(emptyList()) }
-                            .orEmpty()
-                    }
-                    .ifEmpty { runCatching { repo.randomSongs(40) }.getOrDefault(emptyList()) }
                 val have = _queue.value.mapTo(HashSet()) { it.id }
-                val fresh = more.filter { it.id !in have }
-                if (fresh.isNotEmpty() && radioSeed != null) addToQueue(fresh)
+                // Collect fresh candidates from progressively broader sources; stop as soon as we
+                // have some, so we prefer correlated songs but never come back empty-handed.
+                val fresh = LinkedHashMap<String, Song>()
+                fun harvest(list: List<Song>) {
+                    for (s in list) if (s.id !in have && s.id !in fresh) fresh[s.id] = s
+                }
+                harvest(runCatching { repo.similarSongs(seed.id, 60) }.getOrDefault(emptyList()))
+                if (fresh.isEmpty()) seed.artist?.takeIf { it.isNotBlank() }?.let {
+                    harvest(runCatching { repo.topSongs(it, 40) }.getOrDefault(emptyList()))
+                }
+                if (fresh.isEmpty()) harvest(runCatching { repo.randomSongs(40) }.getOrDefault(emptyList()))
+
+                if (fresh.isNotEmpty() && radioSeed != null) {
+                    val room = (RADIO_MAX - _queue.value.size).coerceAtLeast(0)
+                    val toAdd = fresh.values.take(room)
+                    if (toAdd.isNotEmpty()) addToQueue(toAdd)
+                }
             } finally {
                 extending = false
             }
@@ -426,6 +449,7 @@ class PlayerController(private val appContext: Context) {
     fun stop() {
         val c = controller ?: return
         radioSeed = null
+        _source.value = null
         c.stop()
         c.clearMediaItems()
         _isLiveStream.value = false
@@ -520,6 +544,11 @@ class PlayerController(private val appContext: Context) {
             .setUri(streamUri)
             .setMediaMetadata(metadata)
             .build()
+    }
+
+    /** Origin of the current queue, surfaced by the player as a "playing from …" link. */
+    sealed interface PlaybackSource {
+        data class Playlist(val id: String, val name: String) : PlaybackSource
     }
 
 }

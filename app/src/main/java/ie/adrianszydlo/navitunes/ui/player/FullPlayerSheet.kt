@@ -1,15 +1,22 @@
 package ie.adrianszydlo.navitunes.ui.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +24,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +41,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -91,6 +101,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.zIndex
 import ie.adrianszydlo.navitunes.R
@@ -100,6 +111,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
+import coil.imageLoader
+import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.launch
 import ie.adrianszydlo.navitunes.NavitunesApp
@@ -118,7 +131,8 @@ fun FullPlayerSheet(
     controller: PlayerController,
     onDismiss: () -> Unit,
     onOpenAlbum: (String) -> Unit = {},
-    onOpenArtist: (String) -> Unit = {}
+    onOpenArtist: (String) -> Unit = {},
+    onOpenPlaylist: (String) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
@@ -137,7 +151,8 @@ fun FullPlayerSheet(
             controller = controller,
             dismiss = dismiss,
             onOpenAlbum = onOpenAlbum,
-            onOpenArtist = onOpenArtist
+            onOpenArtist = onOpenArtist,
+            onOpenPlaylist = onOpenPlaylist
         )
     }
 }
@@ -147,7 +162,8 @@ private fun FullPlayerContent(
     controller: PlayerController,
     dismiss: ie.adrianszydlo.navitunes.ui.common.SheetDismiss,
     onOpenAlbum: (String) -> Unit,
-    onOpenArtist: (String) -> Unit
+    onOpenArtist: (String) -> Unit,
+    onOpenPlaylist: (String) -> Unit
 ) {
     val onClose: () -> Unit = { dismiss.close() }
     val current by controller.currentItem.collectAsStateWithLifecycle()
@@ -163,6 +179,7 @@ private fun FullPlayerContent(
     val speed by controller.speed.collectAsStateWithLifecycle()
     val sleepEndMs by controller.sleepEndMs.collectAsStateWithLifecycle()
     val isLive by controller.isLiveStream.collectAsStateWithLifecycle()
+    val source by controller.source.collectAsStateWithLifecycle()
 
     var showQueue by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
@@ -172,6 +189,35 @@ private fun FullPlayerContent(
     val artAccent = rememberArtAccent(song?.coverArt)
     // Fetched once per song; shared by the bottom lyrics card and the expanded panel.
     val lyrics = rememberSongLyrics(current)
+
+    // Track skip direction so the cover art slides the right way (next → enters from the right,
+    // prev → from the left). Computed **synchronously** during composition (not in a LaunchedEffect)
+    // so the value is right at the moment AnimatedContent builds its transition, not a frame late —
+    // that lag is why it used to always slide forward.
+    var prevIndex by remember { mutableIntStateOf(index) }
+    val slideForward = index >= prevIndex
+    androidx.compose.runtime.SideEffect { prevIndex = index }
+
+    // Preload the adjacent covers (same Coil cache keys as ArtImage) so a skip/swipe slides in
+    // a fully-decoded neighbour instead of a placeholder.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val api = NavitunesApp.container().apiClient
+    LaunchedEffect(index, queue) {
+        for (i in intArrayOf(index - 1, index + 1)) {
+            val cid = queue.getOrNull(i)?.coverArt ?: continue
+            val url = api.coverUrl(cid, 600) ?: continue
+            val key = "cover:$cid:600"
+            context.imageLoader.enqueue(
+                coil.request.ImageRequest.Builder(context)
+                    .data(url)
+                    .memoryCacheKey(key)
+                    .diskCacheKey(key)
+                    .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                    .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                    .build()
+            )
+        }
+    }
 
     Column(
         Modifier
@@ -211,20 +257,53 @@ private fun FullPlayerContent(
             }) {
                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.close), tint = TextHi)
             }
-            Text(
-                stringResource(
-                    when {
-                        isLive -> R.string.live_radio
-                        showQueue -> R.string.queue
-                        showLyrics -> R.string.lyrics
-                        else -> R.string.now_playing
-                    }
-                ),
-                style = MaterialTheme.typography.labelMedium,
-                color = TextHi,
+            Column(
                 modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center
-            )
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    stringResource(
+                        when {
+                            isLive -> R.string.live_radio
+                            showQueue -> R.string.queue
+                            showLyrics -> R.string.lyrics
+                            else -> R.string.now_playing
+                        }
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextHi,
+                    textAlign = TextAlign.Center
+                )
+                // "Playing from <playlist>" — only in the plain now-playing view, and only
+                // when the queue was actually started from a playlist.
+                val playlistSource = (source as? PlayerController.PlaybackSource.Playlist)
+                    ?.takeIf { !isLive && !showQueue && !showLyrics }
+                if (playlistSource != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .clip(RoundedCornerShape(50))
+                            .clickable { onOpenPlaylist(playlistSource.id); onClose() }
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.QueueMusic,
+                            contentDescription = null,
+                            tint = Accent,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            stringResource(R.string.playing_from, playlistSource.name),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Accent,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
             // Radio has no queue/lyrics — hide the queue toggle so the header stays honest.
             if (!isLive) {
                 IconButton(onClick = {
@@ -311,14 +390,29 @@ private fun FullPlayerContent(
                                 onSwipeRight = { controller.prev() }
                             )
                     ) {
-                        ArtImage(
-                            coverId = song.coverArt,
-                            fallback = song.title,
-                            modifier = Modifier.fillMaxSize(),
-                            cornerRadius = 14.dp,
-                            requestSize = 600,
-                            fallbackIcon = if (isLive) Icons.Filled.Radio else null
-                        )
+                        // Slide between covers in the skip direction; neighbours are preloaded
+                        // above so the incoming art is already decoded.
+                        AnimatedContent(
+                            targetState = song,
+                            contentKey = { it.id },
+                            transitionSpec = {
+                                val dir = if (slideForward) 1 else -1
+                                (slideInHorizontally(tween(320)) { w -> dir * w } + fadeIn(tween(320)))
+                                    .togetherWith(
+                                        slideOutHorizontally(tween(320)) { w -> -dir * w } + fadeOut(tween(320))
+                                    )
+                            },
+                            label = "albumArtSlide"
+                        ) { s ->
+                            ArtImage(
+                                coverId = s.coverArt,
+                                fallback = s.title,
+                                modifier = Modifier.fillMaxSize(),
+                                cornerRadius = 14.dp,
+                                requestSize = 600,
+                                fallbackIcon = if (isLive) Icons.Filled.Radio else null
+                            )
+                        }
                     }
                     VisualizerBars(
                         isPlaying = playing,
@@ -568,7 +662,8 @@ private fun LyricsCard(
     }
 }
 
-private fun formatSpeed(s: Float) = s.toString().trimEnd('0').trimEnd('.')
+// Round to 2 decimals for display so float error (e.g. 1.0500001) never leaks into the label.
+private fun formatSpeed(s: Float) = "%.2f".format(s).trimEnd('0').trimEnd('.')
 
 @Composable
 private fun NavigateChip(
@@ -654,7 +749,8 @@ private fun PlayerSettingsChip(
         ToggleControl(
             icon = Icons.Outlined.Tune,
             contentDescription = stringResource(R.string.player_settings),
-            active = speed != 1f,
+            // Never highlight — it just opens a panel, it's not a toggle.
+            active = false,
             onClick = { open = true }
         )
         if (sleepEndMs != null) {
@@ -707,94 +803,91 @@ private fun PlayerSettingsDialog(
         }
     }
 
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+    // The sleep timer maps onto a 0..SLEEP_MAX_MIN vertical slider; while a timer runs the fill
+    // shows the remaining fraction so it visibly winds down. A local preview holds the value
+    // mid-drag (and the timer only (re)starts on release, not on every drag delta).
+    var sleepPreview by remember { mutableStateOf<Float?>(null) }
+    val sleepRemainingMin = sleepEndMs?.let { ((it - now) / 60_000f).coerceIn(0f, SLEEP_MAX_MIN) }
+    val sleepFraction = sleepPreview ?: ((sleepRemainingMin ?: 0f) / SLEEP_MAX_MIN)
+    val sleepLabel = when {
+        sleepPreview != null -> "${(sleepPreview!! * SLEEP_MAX_MIN).roundToInt()}m"
+        sleepRemainingMin != null -> {
+            val totalSec = (sleepRemainingMin * 60f).toLong().coerceAtLeast(0)
+            "%d:%02d".format(totalSec / 60, totalSec % 60)
+        }
+        else -> stringResource(R.string.sleep_timer_off)
+    }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        // Wrap the content instead of the platform's near-full-width default, which is what made
+        // the old panel stretch to the screen edges.
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Column(
             Modifier
-                .clip(RoundedCornerShape(20.dp))
+                // Bounded width — otherwise the skip-silence row's fillMaxWidth expands this
+                // wrap-content dialog to the full screen (usePlatformDefaultWidth is off).
+                .width(300.dp)
+                .clip(RoundedCornerShape(24.dp))
                 .background(NavTheme.colors.surfaceElev)
-                .padding(20.dp)
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(stringResource(R.string.player_settings), style = MaterialTheme.typography.titleMedium, color = TextHi)
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(20.dp))
 
-            // Volume
-            SettingLabel(stringResource(R.string.volume), "${(volume * 100).toInt()}%")
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = Text2, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(12.dp))
-                val interactionSource = remember { MutableInteractionSource() }
-                val isDragging by interactionSource.collectIsDraggedAsState()
-                var sliderVolume by remember { mutableFloatStateOf(volume) }
-
-                LaunchedEffect(volume) {
-                    if (!isDragging) sliderVolume = volume
-                }
-
-                Slider(
-                    value = sliderVolume,
-                    onValueChange = {
-                        sliderVolume = it
-                        controller.setVolume(it)
+            val curSleepMin = (sleepFraction * SLEEP_MAX_MIN).roundToInt()
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                // Volume — linear 0–100%; ± steps of 5%.
+                VerticalIconSlider(
+                    fraction = volume,
+                    onFraction = { controller.setVolume(it) },
+                    icon = Icons.AutoMirrored.Filled.VolumeUp,
+                    valueLabel = "${(volume * 100).roundToInt()}%",
+                    onIncrement = { controller.setVolume(stepUp(volume, 0.05f).coerceIn(0f, 1f)) },
+                    onDecrement = { controller.setVolume(stepDown(volume, 0.05f).coerceIn(0f, 1f)) }
+                )
+                // Speed — piecewise scale so 1× sits dead-centre; live (unsnapped) while dragging,
+                // snapped to 0.05 on release; ± steps of 0.05.
+                VerticalIconSlider(
+                    fraction = speedToFraction(speed),
+                    onFraction = { onSpeed(fractionToSpeed(it)) },
+                    onCommit = { onSpeed(snapSpeed(fractionToSpeed(it))) },
+                    icon = Icons.Outlined.Speed,
+                    valueLabel = "${formatSpeed(speed)}×",
+                    onIncrement = { onSpeed(stepUp(speed, 0.05f).coerceIn(0.5f, 2f)) },
+                    onDecrement = { onSpeed(stepDown(speed, 0.05f).coerceIn(0.5f, 2f)) }
+                )
+                // Sleep — 0–120 min; ± steps of 5 min for precise setting.
+                VerticalIconSlider(
+                    fraction = sleepFraction,
+                    onFraction = { sleepPreview = it },
+                    onCommit = { f ->
+                        sleepPreview = null
+                        val min = (f * SLEEP_MAX_MIN).roundToInt() / 5 * 5
+                        if (min <= 0) onSleepCancel() else onSleepStart(min)
                     },
-                    interactionSource = interactionSource,
-                    colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent),
-                    modifier = Modifier.weight(1f)
+                    icon = Icons.Outlined.Bedtime,
+                    valueLabel = sleepLabel,
+                    active = sleepEndMs != null || sleepPreview != null,
+                    onIncrement = { onSleepStart(((curSleepMin / 5) * 5 + 5).coerceAtMost(120)) },
+                    onDecrement = {
+                        // Ceil to the 5-min grid, then step down — so 37 → 35, 35 → 30.
+                        val m = ((curSleepMin + 4) / 5) * 5 - 5
+                        if (m <= 0) onSleepCancel() else onSleepStart(m)
+                    }
                 )
             }
-            Spacer(Modifier.height(12.dp))
 
-            // Playback speed
-            SettingLabel(stringResource(R.string.playback_speed), "${formatSpeed(speed)}×")
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Speed, contentDescription = null, tint = Text2, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(12.dp))
-                Slider(
-                    value = speed,
-                    onValueChange = { onSpeed(it) },
-                    valueRange = 0.5f..2f,
-                    steps = 5, // 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0
-                    colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-
-            // Sleep timer
-            val remainingMs = sleepEndMs?.let { it - now }?.coerceAtLeast(0)
-            val remainingLabel = remainingMs?.let {
-                val totalSec = it / 1000
-                val min = totalSec / 60
-                val sec = totalSec % 60
-                " (%d:%02d left)".format(min, sec)
-            } ?: ""
-            SettingLabel(stringResource(R.string.sleep_timer), if (sleepEndMs != null) "Active$remainingLabel" else stringResource(R.string.sleep_timer_off))
-            Spacer(Modifier.height(4.dp))
-            var sliderSleepValue by remember(sleepEndMs) {
-                mutableFloatStateOf(if (sleepEndMs == null) 0f else ((sleepEndMs - now) / 60_000f).coerceIn(0f, 120f))
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Bedtime, contentDescription = null, tint = Text2, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(12.dp))
-                Slider(
-                    value = sliderSleepValue,
-                    onValueChange = { sliderSleepValue = it },
-                    onValueChangeFinished = {
-                        val min = sliderSleepValue.toInt()
-                        if (min == 0) onSleepCancel() else onSleepStart(min)
-                    },
-                    valueRange = 0f..120f,
-                    steps = 7, // 0, 15, 30, 45, 60, 75, 90, 105, 120
-                    colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(20.dp))
 
             // Skip silence
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.skip_silence), style = MaterialTheme.typography.bodyLarge, color = TextHi, modifier = Modifier.weight(1f))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.skip_silence), style = MaterialTheme.typography.bodyMedium, color = TextHi, modifier = Modifier.weight(1f))
                 androidx.compose.material3.Switch(
                     checked = skipSilence,
                     onCheckedChange = { scope.launch { container.preferences.setSkipSilence(it) } }
@@ -804,11 +897,120 @@ private fun PlayerSettingsDialog(
     }
 }
 
+/** Sleep-timer slider range, in minutes. */
+private const val SLEEP_MAX_MIN = 120f
+
+/** Speed 0.5–2.0 mapped onto a slider fraction with **1× dead-centre** (piecewise, not linear). */
+private fun speedToFraction(s: Float): Float =
+    if (s <= 1f) (s - 0.5f).coerceIn(0f, 0.5f) else (0.5f + (s - 1f) / 2f).coerceIn(0.5f, 1f)
+private fun fractionToSpeed(f: Float): Float =
+    if (f <= 0.5f) 0.5f + f else 1f + (f - 0.5f) * 2f
+private fun snapSpeed(s: Float): Float = ((s / 0.05f).roundToInt() * 0.05f).coerceIn(0.5f, 2f)
+
+/** Snap to the next/previous multiple of [step] (so + from 0.37 lands on 0.40, not 0.42). The
+ *  small epsilon absorbs float error so a value already on the grid still advances a full step. */
+private fun stepUp(v: Float, step: Float): Float = (kotlin.math.floor(v / step + 1e-3f).toInt() + 1) * step
+private fun stepDown(v: Float, step: Float): Float = (kotlin.math.ceil(v / step - 1e-3f).toInt() - 1) * step
+
+/**
+ * A vertical, icon-labelled level control with a `+`/`−` stepper above and below. Drag or tap
+ * along the pill to set the value; the fill rises from the bottom and the icon sits at its base.
+ *
+ * The drag position is held in **local** state ([pos]) rather than being read back from the
+ * incoming [fraction] each frame — otherwise the round-trip through the player's StateFlow (and
+ * the speed slider's snapping) lags a frame behind the finger and the slider feels jumpy. [pos]
+ * re-syncs to [fraction] whenever the user isn't touching it (so the sleep fill still winds down).
+ * [onFraction] fires live while dragging; [onCommit] fires once on release.
+ */
 @Composable
-private fun SettingLabel(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = TextHi, modifier = Modifier.weight(1f))
-        if (value.isNotBlank()) Text(value, style = MaterialTheme.typography.labelMedium, color = Accent)
+private fun VerticalIconSlider(
+    fraction: Float,
+    onFraction: (Float) -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    valueLabel: String,
+    onCommit: (Float) -> Unit = {},
+    active: Boolean = true,
+    onIncrement: (() -> Unit)? = null,
+    onDecrement: (() -> Unit)? = null
+) {
+    val trackH = 190.dp
+    val density = LocalDensity.current
+    val trackHpx = with(density) { trackH.toPx() }
+
+    var pos by remember { mutableFloatStateOf(fraction.coerceIn(0f, 1f)) }
+    var interacting by remember { mutableStateOf(false) }
+    LaunchedEffect(fraction) { if (!interacting) pos = fraction.coerceIn(0f, 1f) }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            valueLabel,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (active) Accent else Text2,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
+        Spacer(Modifier.height(6.dp))
+        if (onIncrement != null) {
+            StepButton(Icons.Filled.Add, stringResource(R.string.increase), onIncrement)
+            Spacer(Modifier.height(4.dp))
+        }
+        Box(
+            Modifier
+                .width(48.dp)
+                .height(trackH)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Text2.copy(alpha = 0.16f))
+                .pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        val nf = (1f - offset.y / trackHpx).coerceIn(0f, 1f)
+                        pos = nf; onFraction(nf); onCommit(nf)
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragStart = { interacting = true },
+                        onDragEnd = { interacting = false; onCommit(pos) },
+                        onDragCancel = { interacting = false }
+                    ) { change, dy ->
+                        change.consume()
+                        pos = (pos - dy / trackHpx).coerceIn(0f, 1f)
+                        onFraction(pos)
+                    }
+                },
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(pos)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Brush.verticalGradient(listOf(Accent.copy(alpha = 0.75f), Accent)))
+            )
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = TextHi,
+                modifier = Modifier
+                    .padding(bottom = 14.dp)
+                    .size(22.dp)
+            )
+        }
+        if (onDecrement != null) {
+            Spacer(Modifier.height(4.dp))
+            StepButton(Icons.Filled.Remove, stringResource(R.string.decrease), onDecrement)
+        }
+    }
+}
+
+/** Small ± button flanking a [VerticalIconSlider]. */
+@Composable
+private fun StepButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    IconButton(onClick = onClick, modifier = Modifier.size(32.dp)) {
+        Icon(icon, contentDescription = contentDescription, tint = Text2, modifier = Modifier.size(20.dp))
     }
 }
 

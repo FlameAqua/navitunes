@@ -111,6 +111,10 @@ fun RootNav() {
         onDispose { controller.unbind() }
     }
 
+    // Cold-start brand splash overlays everything, then dissolves away.
+    var showSplash by rememberSaveable { mutableStateOf(true) }
+
+    Box(Modifier.fillMaxSize()) {
     when {
         addProfileMode -> {
             val cancel: (() -> Unit)? = if (profiles.isNotEmpty()) {
@@ -135,6 +139,11 @@ fun RootNav() {
             controller = controller,
             onAddProfile = { addProfileMode = true }
         )
+    }
+
+        if (showSplash) {
+            ie.adrianszydlo.navitunes.ui.common.BrandSplash(onFinished = { showSplash = false })
+        }
     }
 }
 
@@ -453,7 +462,6 @@ private fun MainShellInner(
                     PlaylistScreen(
                         id = id,
                         onBack = { nav.popBackStack() },
-                        onPlay = { songs, idx -> controller.play(songs, idx) },
                         onGoHome = {
                             nav.navigate(Routes.HOME) {
                                 popUpTo(nav.graph.findStartDestination().id) { inclusive = false }
@@ -488,7 +496,8 @@ private fun MainShellInner(
             controller = controller,
             onDismiss = { showFullPlayer = false },
             onOpenAlbum = { id -> nav.navigate(Routes.album(id)) },
-            onOpenArtist = { id -> nav.navigate(Routes.artist(id)) }
+            onOpenArtist = { id -> nav.navigate(Routes.artist(id)) },
+            onOpenPlaylist = { id -> nav.navigate(Routes.playlist(id)) }
         )
     }
 }

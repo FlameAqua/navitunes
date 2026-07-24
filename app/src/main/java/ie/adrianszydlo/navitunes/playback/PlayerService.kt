@@ -36,6 +36,14 @@ import kotlinx.coroutines.launch
 /** Custom session command backing the favourite button in the notification / output switcher. */
 const val ACTION_TOGGLE_FAVORITE = "ie.adrianszydlo.navitunes.TOGGLE_FAVORITE"
 
+/**
+ * ±10s exposed as **custom** session commands (not player commands). One UI's media player /
+ * output switcher renders custom actions but ignores the standard SEEK_BACK/SEEK_FORWARD
+ * player commands, so binding them this way is what makes the ±10s buttons actually appear.
+ */
+const val ACTION_SEEK_BACK = "ie.adrianszydlo.navitunes.SEEK_BACK"
+const val ACTION_SEEK_FORWARD = "ie.adrianszydlo.navitunes.SEEK_FORWARD"
+
 /** Session-extras key the service publishes so the in-app UI stays in sync with the notification heart. */
 const val EXTRA_IS_FAVORITE = "ie.adrianszydlo.navitunes.IS_FAVORITE"
 
@@ -110,6 +118,8 @@ class PlayerService : MediaSessionService() {
                     val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
                         .buildUpon()
                         .add(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY))
+                        .add(SessionCommand(ACTION_SEEK_BACK, Bundle.EMPTY))
+                        .add(SessionCommand(ACTION_SEEK_FORWARD, Bundle.EMPTY))
                         .build()
                     return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                         .setAvailableSessionCommands(commands)
@@ -123,12 +133,14 @@ class PlayerService : MediaSessionService() {
                     customCommand: SessionCommand,
                     args: Bundle
                 ): ListenableFuture<SessionResult> {
-                    if (customCommand.customAction != ACTION_TOGGLE_FAVORITE) {
-                        return Futures.immediateFuture(
+                    when (customCommand.customAction) {
+                        ACTION_TOGGLE_FAVORITE -> toggleFavorite()
+                        ACTION_SEEK_BACK -> session.player.seekBack()
+                        ACTION_SEEK_FORWARD -> session.player.seekForward()
+                        else -> return Futures.immediateFuture(
                             SessionResult(SessionError.ERROR_NOT_SUPPORTED, Bundle.EMPTY)
                         )
                     }
-                    toggleFavorite()
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle.EMPTY))
                 }
             })
@@ -173,6 +185,10 @@ class PlayerService : MediaSessionService() {
     @OptIn(UnstableApi::class)
     private fun buttons(): ImmutableList<CommandButton> {
         if (isLiveNow()) return ImmutableList.of()
+        // ±10s and favourite are **custom** actions (One UI ignores the standard seek player-commands
+        // in its media player). Custom actions render left of the transport row in list order, so we
+        // order them back10 · fwd10 · favourite to keep the heart at the trailing edge. Prev/Next stay
+        // primary so they always survive the compact strip.
         return ImmutableList.of(
             CommandButton.Builder(CommandButton.ICON_PREVIOUS)
                 .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS)
@@ -185,14 +201,14 @@ class PlayerService : MediaSessionService() {
                 .setSlots(CommandButton.SLOT_FORWARD)
                 .build(),
             CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
-                .setPlayerCommand(Player.COMMAND_SEEK_BACK)
+                .setSessionCommand(SessionCommand(ACTION_SEEK_BACK, Bundle.EMPTY))
                 .setDisplayName(getString(R.string.skip_back_10))
-                .setSlots(CommandButton.SLOT_BACK_SECONDARY)
+                .setSlots(CommandButton.SLOT_OVERFLOW, CommandButton.SLOT_BACK_SECONDARY)
                 .build(),
             CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_10)
-                .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
+                .setSessionCommand(SessionCommand(ACTION_SEEK_FORWARD, Bundle.EMPTY))
                 .setDisplayName(getString(R.string.skip_forward_10))
-                .setSlots(CommandButton.SLOT_FORWARD_SECONDARY)
+                .setSlots(CommandButton.SLOT_OVERFLOW, CommandButton.SLOT_FORWARD_SECONDARY)
                 .build(),
             CommandButton.Builder(
                 if (isFavorite) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED

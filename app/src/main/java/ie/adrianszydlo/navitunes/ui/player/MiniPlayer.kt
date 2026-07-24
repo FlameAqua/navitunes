@@ -60,12 +60,23 @@ fun MiniPlayer(
     val duration by controller.duration.collectAsStateWithLifecycle()
     val song = current ?: return
 
+    // Gentle dynamic lighting: a soft accent pulled from the current cover art, glowing
+    // from the album-art (left) edge and fading into the surface — a quieter echo of the
+    // full player's ambient backdrop.
+    val artAccent = rememberArtAccent(song.coverArt, requestSize = 200)
+
     Box(
         modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(SurfaceElev)
+            .background(
+                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                    0f to androidx.compose.ui.graphics.lerp(SurfaceElev, artAccent, 0.30f),
+                    0.55f to SurfaceElev,
+                    1f to SurfaceElev
+                )
+            )
             .border(1.dp, BorderCol, RoundedCornerShape(14.dp))
             .combinedClickable(onClick = onExpand, onLongClick = onLongPress)
             .swipeToSkip(

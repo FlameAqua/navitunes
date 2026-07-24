@@ -20,5 +20,9 @@ suspend fun buildSongRadioQueue(repo: LibraryRepository, seed: Song): List<Song>
     val filler = if (similar.isEmpty() && extra.isEmpty()) {
         runCatching { repo.randomSongs(40) }.getOrDefault(emptyList())
     } else emptyList()
-    return (listOf(seed) + similar + extra + filler).distinctBy { it.id }
+    // Cap the seed queue; the player auto-extends toward its own limit as playback proceeds.
+    return (listOf(seed) + similar + extra + filler).distinctBy { it.id }.take(SONG_RADIO_INITIAL_MAX)
 }
+
+/** Upper bound on the initial seed queue; the player tops it up during playback. */
+private const val SONG_RADIO_INITIAL_MAX = 40

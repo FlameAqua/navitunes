@@ -1,5 +1,10 @@
 package ie.adrianszydlo.navitunes.ui.detail
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +24,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 import ie.adrianszydlo.navitunes.NavitunesApp
@@ -50,6 +57,8 @@ fun AlbumScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var album by remember { mutableStateOf<Album?>(null) }
     var query by remember { mutableStateOf("") }
+    var searchOpen by remember { mutableStateOf(false) }
+    val searchFocus = remember { FocusRequester() }
     var fetching by remember { mutableStateOf(false) }
     var pendingInstall by remember { mutableStateOf<ie.adrianszydlo.navitunes.data.discovery.SpotifyResult?>(null) }
 
@@ -131,20 +140,34 @@ fun AlbumScreen(
                                         }
                                     }
                                 }
-                            } else null
+                            } else null,
+                            onToggleSearch = if (songs.size > 3) {
+                                { searchOpen = !searchOpen; if (!searchOpen) query = "" }
+                            } else null,
+                            searchActive = searchOpen
                         )
                         Spacer(Modifier.height(8.dp))
                     }
                     if (songs.size > 3) {
                         item {
-                            DetailSearchField(
-                                query = query,
-                                onQueryChange = { query = it },
-                                placeholder = "Search this album…",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 4.dp)
-                            )
+                            LaunchedEffect(searchOpen) {
+                                if (searchOpen) runCatching { searchFocus.requestFocus() }
+                            }
+                            AnimatedVisibility(
+                                visible = searchOpen,
+                                enter = expandVertically() + fadeIn(),
+                                exit = shrinkVertically() + fadeOut()
+                            ) {
+                                DetailSearchField(
+                                    query = query,
+                                    onQueryChange = { query = it },
+                                    placeholder = "Search this album…",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 4.dp)
+                                        .focusRequester(searchFocus)
+                                )
+                            }
                             Spacer(Modifier.height(4.dp))
                         }
                     }

@@ -321,35 +321,10 @@ private fun SearchResults(
             }
         }
 
-        if (bundle.artists.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("Artists") }
-            bundle.artists.forEach { artist ->
-                item(key = "ar-${artist.id}", span = { GridItemSpan(maxLineSpan) }) {
-                    ArtistRow(artist, onClick = { onArtist(artist.id) })
-                }
-            }
-        }
-        if (bundle.albums.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Spacer(Modifier.height(8.dp)); SectionHead("Albums")
-            }
-            bundle.albums.forEach { album ->
-                item(key = "al-${album.id}") { AlbumCard(album = album, onClick = { onAlbum(album.id) }) }
-            }
-        }
-        if (bundle.playlists.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Spacer(Modifier.height(8.dp)); SectionHead("Playlists")
-            }
-            bundle.playlists.forEach { playlist ->
-                item(key = "pl-${playlist.id}", span = { GridItemSpan(maxLineSpan) }) {
-                    PlaylistRow(playlist, onClick = { onPlaylist(playlist.id) })
-                }
-            }
-        }
+        // Order: Songs → Artists → Playlists → Albums (tracks are what people search for most).
         if (bundle.songs.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Spacer(Modifier.height(8.dp)); SectionHead(if (query.isBlank()) stringResource(R.string.lib_all_songs) else "Songs")
+                SectionHead(if (query.isBlank()) stringResource(R.string.lib_all_songs) else "Songs")
             }
             bundle.songs.forEachIndexed { idx, song ->
                 item(key = "sg-${song.id}-$idx", span = { GridItemSpan(maxLineSpan) }) {
@@ -364,6 +339,34 @@ private fun SearchResults(
                         )
                     )
                 }
+            }
+        }
+        if (bundle.artists.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Spacer(Modifier.height(8.dp)); SectionHead("Artists")
+            }
+            bundle.artists.forEach { artist ->
+                item(key = "ar-${artist.id}", span = { GridItemSpan(maxLineSpan) }) {
+                    ArtistRow(artist, onClick = { onArtist(artist.id) })
+                }
+            }
+        }
+        if (bundle.playlists.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Spacer(Modifier.height(8.dp)); SectionHead("Playlists")
+            }
+            bundle.playlists.forEach { playlist ->
+                item(key = "pl-${playlist.id}", span = { GridItemSpan(maxLineSpan) }) {
+                    PlaylistRow(playlist, onClick = { onPlaylist(playlist.id) })
+                }
+            }
+        }
+        if (bundle.albums.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Spacer(Modifier.height(8.dp)); SectionHead("Albums")
+            }
+            bundle.albums.forEach { album ->
+                item(key = "al-${album.id}") { AlbumCard(album = album, onClick = { onAlbum(album.id) }) }
             }
         }
 
